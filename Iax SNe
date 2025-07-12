@@ -1,0 +1,138 @@
+%חמשת הערכים שיוכנסו לגרפים מסודרים כמערכים
+clc; clear; close all;
+
+% Peak absolute magnitude (N = 35)
+peakMag = [ -16.85, -18.05, -14.91, -18.15, -17.90, -18.38, -19.09, -17.71, ...
+            -18.04, -17.67, -17.11, -18.04, -18.43, -18.09, -16.78, -16.60, ...
+            -18.04, -17.91, -18.23, -17.76, -18.70, -18.43, -18.37, -17.82, ...
+            -13.97, -14.60, -15.15, -16.35, -17.27, -17.69, -16.50, -18.13, ...
+            -15.17, -17.29, -12.66 ];
+
+% r15 (N = 35)
+r15 = [ 0.56, 0.67, 0.67, 0.40, 0.55, 0.72, 0.60, 0.49, ...
+        0.65, 0.57, 0.89, 0.29, NaN, NaN, 0.69, 0.79, ...
+        NaN, 0.67, 0.56, 0.71, 0.25, 0.44, 0.59, 0.48, ...
+        0.91, 1.01, 1.11, 1.00, 0.69, 0.60, 0.84, 0.62, ...
+        0.99, 0.58, 0.70 ];
+
+% Galaxy types (N = 35)
+galTypeRaw = { 'Irr','Unclassified','SB','Unclassified','Irr','S','Unclassified','E', ...
+               'S','Unclassified','Unclassified','SB','E','Unclassified','Sa','Sb', ...
+               'S0','Sc','S0','S0','Sc','S0','Sc','Irr', ...
+               'Unclassified','Irr','Irr','Unclassified', ...
+               'Sb','Sb','Sa','Unclassified','S','Sb','Sa' };
+
+% Offset in kpc (N = 35)
+offset = [ 0.93,1.95,6.7,0.42,0.8,14.7,6.56,0.3,8.6,2.1,...
+           2.52,0.3,3,5.27,2.5,4.4,1.5,4.8,1.5,1.9,...
+           NaN,0.7,3.8,3.39,NaN,NaN,0.9,1.9,3.2,3,3.5,...
+           NaN,2.35,0.59,5.6];
+
+% Metallicity 12+log(O/H) (N = 35)
+metallic = [ NaN, NaN, 8.68, NaN, 8.54, NaN, 8.78, 8.82, ...
+             8.70, 8.75, 8.80, 8.72, 8.75, 8.77, NaN, NaN, ...
+             NaN, 8.34, NaN, NaN, 8.37, 8.69, 8.41, NaN, ...
+             8.10, 8.32, 8.22, NaN, 8.50, 8.56, NaN, 8.43, ...
+             NaN, NaN, NaN ];
+
+%סידור הגלקסיות לפי סדר
+catOrder = {'E','S0','S','Sa','Sb','Sc','Sd','SB','Irr','Unclassified'};
+galType = galTypeRaw;
+for i = 1:numel(galType)
+    if isempty(galType{i}) || any(strcmpi(galType{i},{'Unclassified','Unknown'}))
+        galType{i} = 'Unclassified';
+    end
+end
+galCat = categorical(galType, catOrder, 'Ordinal', true);
+
+%הפיכה של מרחק הסופרנובה ממרכז הגלקסיה ללוג
+logOffset = log10(offset);
+logOffset(offset <= 0 | isnan(offset)) = NaN;
+
+%צביעה של שני הקלסטרים שנצפו בגרפים של המתכתיות
+N = numel(peakMag);                  % 35
+col = repmat([0 0 0], N, 1);         % default = black
+blueIdx  = peakMag >= -19.2 & peakMag <= -16.5 & ...
+           metallic >= 8.6 & metallic <= 8.9;
+redIdx   = peakMag <  -16.5  & metallic >= 8.3 & metallic <= 8.6;
+col(blueIdx,:) = repmat([0 0 1], sum(blueIdx), 1);   % blue
+col(redIdx,:)  = repmat([1 0 0], sum(redIdx),  1);   % red
+
+%אפיון כל הגרפים
+plots = {
+    r15,         peakMag,  'r_{15}',                'Peak |M| (mag)',          true;
+    galCat,      peakMag,  'Galaxy type',           'Peak |M| (mag)',          true;
+    logOffset,   peakMag,  'log_{10}(offset/kpc)',  'Peak |M| (mag)',          true;
+    galCat,      r15,      'Galaxy type',           'r_{15}',                  false;
+    logOffset,   r15,      'log_{10}(offset/kpc)',  'r_{15}',                  false;
+    galCat,      logOffset,'Galaxy type',           'log_{10}(offset/kpc)',    false;
+    metallic,    peakMag,  '12+log(O/H)',           'Peak |M| (mag)',          true;
+    metallic,    r15,      '12+log(O/H)',           'r_{15}',                  false;
+    metallic,    logOffset,'12+log(O/H)',           'log_{10}(offset/kpc)',    false;
+    galCat,      metallic, 'Galaxy type',           '12+log(O/H)',             false;
+};
+
+%יצירת כל הגרפים
+for k = 1:size(plots,1)
+    figure('Name',sprintf('Plot %d',k),'Color','w');
+    p = plots(k,:);
+    doPlot(p{1}, p{2}, p{3}, p{4}, p{5}, col);
+    if iscategorical(p{1}), set(gca,'XTickLabelRotation',45); end
+    title(sprintf('Plot %d',k));
+end
+
+%יצירת לג'נד שיראה מה הסיווג לצבעים אומר
+figure('Name','Legend','Color','w');
+hold on;
+scatter(NaN,NaN,36,[0 0 1],'filled');
+scatter(NaN,NaN,36,[1 0 0],'filled');
+scatter(NaN,NaN,36,[0 0 0],'filled');
+legend({'Blue: -19.2 ≤ M ≤ -16.5  &  8.6 ≤ Z ≤ 8.9',...
+        'Red:  M  <  -16.5          &  8.3 ≤ Z ≤ 8.6',...
+        'Other'},'Location','northwest');
+axis off;
+
+%יצירת מבחן סטטיסטי KS לשני הקלסטרים
+offset35 = offset(1:35);
+logOff   = logOffset(1:35);
+
+fprintf('\nK–S tests: blue vs. red subsamples\n');
+ksPrint(peakMag,  blueIdx, redIdx, 'Peak |M|');
+ksPrint(r15,      blueIdx, redIdx, 'r_{15}');
+ksPrint(logOff,   blueIdx, redIdx, 'log_{10}(offset)');
+ksPrint(metallic, blueIdx, redIdx, '12+log(O/H)');
+% פונקציה ליצירת הגרפים
+function doPlot(x, y, xlab, ylab, flipY, colAll)
+    if iscategorical(x), x = double(x); end
+    if iscategorical(y), y = double(y); end
+    x = x(:);
+    y = y(:);
+    colAll = colAll(:,:);
+    n = min([numel(x), numel(y), size(colAll,1)]);
+    x = x(1:n);
+    y = y(1:n);
+    col = colAll(1:n,:);
+    valid = isfinite(x) & isfinite(y);
+    x = x(valid);
+    y = y(valid);
+    col = col(valid,:);
+    scatter(x, y, 36, col, 'filled', 'MarkerFaceAlpha', 0.8);
+    xlabel(xlab, 'Interpreter', 'none');
+    ylabel(ylab, 'Interpreter', 'none');
+    grid on; box on;
+    if flipY
+        set(gca,'YDir','reverse');
+    end
+end
+
+%פונקציה שמחזירה את הערכים של מבחן הKS
+function ksPrint(x, blueIdx, redIdx, label)
+    xa = x(blueIdx & isfinite(x));
+    xb = x(redIdx  & isfinite(x));
+    if numel(xa) < 2 || numel(xb) < 2
+        fprintf('%-18s — too few data\n', label);
+        return
+    end
+    [h, p, ks] = kstest2(xa, xb);
+    fprintf('%-18s  KS = %.3f   p = %.3g   h = %d\n', label, ks, p, h);
+end
