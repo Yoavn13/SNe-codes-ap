@@ -1,0 +1,146 @@
+%ארבעת הערכים שיוצגו בגרפים
+peakMag = [-19.74 -18.24 -19.71 -18.86 -19.39 -19.3 -19.3 ...
+           -19.58 -19.70 -20.03 -19.96 -18.56 -19.42 -19.69 -18.41 ...
+           -18.93 -19.21 -19.48 -19.21 -19.69 ...
+           -19.17 -19.50 -19.75 -19.62 -19.01 -19.45 -19.56 -18.64 ...
+           -18.99 -20.05 -19.76 -18.95 -19.39 -19.27 -19.39 -19.34 -19.06 ...
+           -19.07];
+
+r15 = [0.67 0.69 0.74 0.69 0.59 0.69 0.68 ...
+       0.67 0.52 0.38 0.28 0.715 0.645 0.65 0.75 ...
+       0.67 0.60 0.69 0.76 0.71 ...
+       0.63 0.57 0.52 0.70 0.56 0.385 0.63 0.47 ...
+       0.48 0.20 0.89 0.45 0.30 0.73 0.69 0.82 0.65 ...
+       0.66];
+
+offset = [0.92 3.7 5.76 0.7 1.5 9.08 1.93 ...
+          2.39 0.79 1.02 6.97 3.36 2 4.72 ...
+          1.76 3.73 3.1 1.51 6.79 0.94 ...
+          1.46 1.83 3.6 18.0 3.34 1.34 7.86 0.76 ...
+          0.29 0.95 0.9 6.0 12.1 0.1 2.9 4.3 0.2 ...
+          10.6];
+
+galaxyType = ["S0" "Sa" "Disk" "Sc" "Irr" "Unknown" "Sa" ...
+              "Unknown" "Unknown" "Unknown" "Sc" "Unknown" "Unknown" "SA" ...
+              "Unknown" "Unknown" "S" "Unknown" "Sa" "Unknown" ...
+              "Unknown" "Unknown" "Unknown" "SB" "Unknown" "Unknown" "Unknown" "Unknown" ...
+              "Unknown" "Unknown" "Unknown" "S" "S" "S0" "Irr" "S0" "SB" ...
+              "SB"];
+
+%הופך את המרחק ממרכז הגלקסיה ללוג
+logOffset = log10(offset);
+%קובע את הסדר של הגלקסיות שיוצג
+catOrder  = ["S0" "Disk" "S" "Sa" "Sc" "SA" "SB" "Irr"];
+% מתאים את הערכים של הגלקסיות שהוכנסו למערך סוגי הגלקסיות לסדר שנקבע בשורה
+% הקודמת
+galCat    = categorical(galaxyType, catOrder, 'Ordinal', true);
+% פונקציה שמוציאה מהגרפים של סוגי הגלקסיות את הסווגים שנקבעו כלא מגודרים
+validGT   = ~isundefined(galCat);               
+
+% יוצר צורה קבועה לגרפים
+mk = @(x,y) scatter(x,y,40,'filled','MarkerFaceAlpha',0.75);
+
+%% (1) Peak Mabs vs r15
+%טענת כניסה: מקבל את שיא הבהירות האבסולוטית ואת הירידה באור מסוג אר 15 ימים
+%אחרי השיא
+%טענת יציאה: מציג גרף של שני הערכים אחד מול השני
+idx   = ~isnan(peakMag) & ~isnan(r15); 
+
+% יוצר צבעים בהתאם לתנאים שהגדרתי מכיוון שנמצאו שני קלסטרים
+isRed   = (r15 >= 0.63 & r15 <= 0.76)  &  (peakMag <= -19.21 & peakMag >= -19.85);
+isGreen = (r15 >= 0.52 & r15 <= 0.75)  &  (peakMag <= -18.41 & peakMag >= -19.75);
+isGreen = isGreen & ~isRed;                   % make filters exclusive
+isOther = ~(isRed | isGreen);                % everything else
+
+% הגדרה של הצבעים
+C          = repmat([0 0.447 0.741], numel(peakMag), 1);  % default blue
+C(isRed,:)   = repmat([1 0 0],      sum(isRed),   1);     % red
+C(isGreen,:) = repmat([0 0.6 0],    sum(isGreen), 1);     % green
+
+% יצירה של הגרף
+figure;  hold on
+scatter(r15(idx), peakMag(idx), 40, C(idx,:), 'filled', 'MarkerFaceAlpha', 0.75);
+set(gca,'YDir','reverse');
+xlabel('r_{15}'); ylabel('Peak Abs. Mag');
+title(sprintf('91T | Peak M_{abs} vs r_{15} (N = %d)', sum(idx)));
+legend({'other 91T-like','red cluster','green cluster'},'Location','southwest');
+
+%% (2) Peak Mabs vs log10(offset)
+%טענת כניסה: מקבל את שיא הבהירות האבסולוטית ולוג של מרחק הסופרנובה ממרכז
+%הגלקסיה
+%טענת יציאה: מציג גרף של שני הערכים אחד מול השני
+logOffset = log10(offset);
+idx = ~isnan(peakMag) & ~isnan(logOffset);
+figure;
+scatter(logOffset(idx), peakMag(idx), 40, C(idx,:), 'filled', 'MarkerFaceAlpha', 0.75);
+set(gca,'YDir','reverse');
+xlabel('log_{10}(Offset)'); ylabel('Peak Abs. Mag');
+title(sprintf('91T | Peak M_{abs} vs log_{10}(Offset) (N = %d)', sum(idx)));
+
+%% (3) Peak Mabs vs Galaxy Type
+%טענת כניסה: מקבל את שיא הבהירות האבסולוטית ואת סוג הגלקסיה המארחת
+% טענת יציאה: מציג גרף של שני הערכים אחד מול השני
+catOrder = ["S0","Sa","Sc","SA","SB","Irr"];
+galCat = categorical(galaxyType, catOrder, 'Ordinal', true);
+idx = ~isnan(peakMag) & ~isundefined(galCat);
+figure;
+scatter(galCat(idx), peakMag(idx), 40, C(idx,:), 'filled', 'MarkerFaceAlpha', 0.75);
+set(gca,'YDir','reverse');
+xlabel('Galaxy Type'); ylabel('Peak Abs. Mag');
+title(sprintf('91T | Peak M_{abs} vs Galaxy Type (N = %d)', sum(idx)));
+xtickangle(45);
+
+%% (4) r15 vs log10(offset)
+%טענת כניסה: מקבל את הירידה באור מסוג אר 15 ימים אחרי השיא
+%טענת יציאה: מציג גרף של שני הערכים אחד מול השני
+idx = ~isnan(r15) & ~isnan(logOffset);
+figure;
+scatter(logOffset(idx), r15(idx), 40, C(idx,:), 'filled', 'MarkerFaceAlpha', 0.75);
+xlabel('log_{10}(Offset)'); ylabel('r_{15}');
+title(sprintf('91T | r_{15} vs log_{10}(Offset) (N = %d)', sum(idx)));
+
+%% (5) r15 vs Galaxy Type
+%טענת כניסה: מקבל את הירידה באור מסוג אר 15 ימים אחרי השיא ואת סוג הגלקסיה
+%טענת יציאה: מציג גרף של שני הערכים אחד מול השני
+idx = ~isnan(r15) & ~isundefined(galCat);
+figure;
+scatter(galCat(idx), r15(idx), 40, C(idx,:), 'filled', 'MarkerFaceAlpha', 0.75);
+xlabel('Galaxy Type'); ylabel('r_{15}');
+title(sprintf('91T | r_{15} vs Galaxy Type (N = %d)', sum(idx)));
+xtickangle(45);
+
+%% (6) log10(offset) vs Galaxy Type
+%טענת כניסה:מקבל את הירידה באור מסוג אר 15 ימים אחרי השיא ולוג של מרחק
+%הסופרנובה ממרכז הגלקסיה
+% טענת יציאה: מציג גרף של שני הערכים אחד מול השני
+idx = ~isnan(logOffset) & ~isundefined(galCat);
+figure;
+scatter(galCat(idx), logOffset(idx), 40, C(idx,:), 'filled', 'MarkerFaceAlpha', 0.75);
+xlabel('Galaxy Type'); ylabel('log_{10}(Offset)');
+title(sprintf('91T | log_{10}(Offset) vs Galaxy Type (N = %d)', sum(idx)));
+xtickangle(45);
+%% KS tset
+%מבחנים סטטיסטיים של שני הקלסטרים שנמצאו (אדום וירוק) עבור כל אחד מהערכים
+
+% --- 1) Peak absolute magnitude --------------------------------
+[x_h, x_p, x_ks] = kstest2( peakMag(isRed),  peakMag(isGreen) );
+
+fprintf('\nKS test  (Peak Mabs)\n');
+fprintf('  h  = %d  (0 = same dist., 1 = reject H0 at α = 0.05)\n', x_h);
+fprintf('  p  = %.4f\n', x_p);
+fprintf('  ks = %.4f\n', x_ks);
+
+% --- 2) r15 -----------------------------------------------------
+[r_h, r_p, r_ks] = kstest2( r15(isRed),      r15(isGreen) );
+
+fprintf('\nKS test  (r15)\n');
+fprintf('  h  = %d  (0 = same dist., 1 = reject H0 at α = 0.05)\n', r_h);
+fprintf('  p  = %.4f\n', r_p);
+fprintf('  ks = %.4f\n', r_ks);
+% --- 3) Offset (in kpc) ----------------------------------------------
+[o_h, o_p, o_ks] = kstest2(offset(isRed), offset(isGreen));
+
+fprintf('\nKS test  (Offset in kpc)\n');
+fprintf('  h  = %d  (0 = same dist., 1 = reject H0 at α = 0.05)\n', o_h);
+fprintf('  p  = %.4f\n', o_p);
+fprintf('  ks = %.4f\n', o_ks);
