@@ -1,0 +1,186 @@
+%קריאה של קובץ מאגר הנתונים
+fname = 'SNe DB (10).xlsx';
+tbl   = readtable(fname,'VariableNamingRule','preserve');
+%שמירה של תת קבוצה
+keepSubclass  = contains(tbl.class,["Iax","91T","Ca"],'IgnoreCase',true);
+tbl           = tbl(keepSubclass,:);
+%מוציא נקודות שיש להן הערה שחסר להן שיא בהירות אמיתי בקו האור
+noMissingPeak = ~contains(tbl.Comment,"missing peak",'IgnoreCase',true);
+tbl           = tbl(noMissingPeak,:);
+%שינוי של כל מה שנכתב דומה אך לא אותו דבר לשמות של הקבוצות
+tbl.class = regexprep(tbl.class,{'Ca[- ]rich.*','91T[- ]like.*','Iax.*'}, ...
+                                 {'Ca-rich','91T','Iax'}, 'ignorecase');
+%מוריד מנקודות בהן יש פלוס מינוס את הפלוס מינוס
+[tbl.PeakMag, tbl.PeakMagErr] = parseValErr(tbl.("Peak absolute mag"));
+[tbl.r15,     tbl.r15Err    ] = parseValErr(tbl.("Δm15"           ));
+[tbl.Offset,  ~             ] = parseValErr(tbl.("Offset (all formulas are by AI)"));
+tbl.logOff = log10(tbl.Offset);  
+
+%מסדר את הגלקסיות לפי סדר
+galOrder     = ["E","S0","Sa","Sb","Sc","Sd","Irr"];
+tbl.GalCat   = cleanGalaxy(tbl.("Galaxy type"),galOrder);   % Unknown→<undef>
+
+%שם את הנקודות מהקבוצות השונות כצבעים וצורות שונות
+classes = ["91T","Iax","Ca-rich"];
+clr     = [1 0 0; 0 0 1; 0 0.6 0];        % red/blue/green
+mrk     = {'o','s','^'};                  % circle/square/triangle
+
+%יצירה של גרפים
+% 1)  |M|  vs  r15  (both x & y error bars)
+scatterPanelErr(tbl.r15,  tbl.r15Err, ...
+                tbl.PeakMag, tbl.PeakMagErr, ...
+                tbl.class, classes, clr, mrk, ...
+                'r_{15}', 'Peak |M|', true, '|M| vs r_{15}');
+
+% 2)  |M|  vs  Galaxy type  (y-error only, Unknown hosts skipped)
+scatterGalaxyErr(tbl, tbl.PeakMag, tbl.PeakMagErr, ...
+                 classes, clr, mrk, 'Peak |M|','|M| vs Galaxy type');
+
+% 3)  |M|  vs  log₁₀(offset)  (y-error only)
+scatterPanelErr(tbl.logOff, NaN(size(tbl.logOff)), ...
+                tbl.PeakMag, tbl.PeakMagErr, ...
+                tbl.class, classes, clr, mrk, ...
+                'log_{10}(Offset / kpc)', 'Peak |M|', true, '|M| vs log_{10} Offset');
+
+% 4)  r15  vs  log₁₀(offset)  (x-error only)
+scatterPanelErr(tbl.logOff, NaN(size(tbl.logOff)), ...
+                tbl.r15, tbl.r15Err, ...
+                tbl.class, classes, clr, mrk, ...
+                'log_{10}(Offset / kpc)', 'r_{15}', false,'r_{15} vs log_{10} Offset');
+
+% 5)  r15  vs  Galaxy type  (x-error only, Unknown hosts skipped)
+scatterGalaxyErr(tbl, tbl.r15, tbl.r15Err, ...
+                 classes, clr, mrk, 'r_{15}','r_{15} vs Galaxy type');
+
+% 6)  log₁₀(offset)  vs  Galaxy type  (no error bars available)
+scatterGalaxyErr(tbl, tbl.logOff, NaN(size(tbl.logOff)), ...
+                 classes, clr, mrk, 'log_{10}(Offset / kpc)', ...
+                 'log_{10} Offset vs Galaxy type');
+%מבחן KS על כל הקבוצות בשלושת הערכים
+ksCompare(tbl, classes, 'r15');
+ksCompare(tbl, classes, 'PeakMag');
+ksCompare(tbl, classes, 'logOff');
+
+%% =====================  FUNCTIONS  ======================================
+%טענת כניסה: הפונקציה מקבלת ערכים עם פלוס מינוס
+%טענת יציאה: הפונקציה מוציאה את הערכים בלי הפלוס מינוס
+function [val,err] = parseValErr(col)
+    n   = numel(col);  val = NaN(n,1);  err = NaN(n,1);
+    for i = 1:n
+        s = regexprep(char(col{i}), {'−','~'}, {'-',''});    % normalise glyphs
+        m = regexp(s,'(-?\d+\.?\d*)\s*±\s*([\d\.]+)','tokens','once');
+        if isempty(m)         % no ± found
+            val(i) = str2double(regexp(s,'-?\d+\.?\d*','match','once'));
+            err(i) = NaN;
+        else
+            val(i) = str2double(m{1});
+            err(i) = str2double(m{2});
+        end
+    end
+end
+%טענת כניסה: הפונקציה מקבלת את כל הערכים של סוגי הגלקסיות
+%טענת יציאה: הפונקציה משנה את כל הערכים שנכתבו שונה מהצורה שבה סוגי
+%הגלקסיות מסודרות
+function cat = cleanGalaxy(col,order)
+    n = numel(col); out = strings(n,1);
+    for i = 1:n
+        g = lower(string(col(i)));
+        if contains(g,["irr","irregular"]), out(i)="Irr";
+        elseif startsWith(g,"e"),           out(i)="E";
+        elseif contains(g,"s0"),            out(i)="S0";
+        elseif startsWith(g,"sa"),          out(i)="Sa";
+        elseif startsWith(g,"sb"),          out(i)="Sb";
+        elseif contains(g,"sc"),            out(i)="Sc";
+        elseif contains(g,"sd"),            out(i)="Sd";
+        else,                               out(i)="";  % Unknown
+        end
+    end
+    cat = categorical(out,order,'Ordinal',true);
+end
+%טענת כניסה: הפונקציה מקבלת את הערכים והקבוצות של המשתנים
+%טענת יציאה: הפונקציה מוציאה גרף המציג את שני הפרמטרים אחד מול השני
+function scatterPanelErr(x,xerr,y,yerr,class,classes,clr,mrk, ...
+                          xlab,ylab,revY,ttl)
+    figure('Name',ttl); hold on;
+    h = gobjects(numel(classes),1); % for legend handles
+    for k = 1:numel(classes)
+        idx = class==classes(k);
+        % Main points (store handle)
+        h(k) = scatter(x(idx), y(idx), 36, clr(k,:), mrk{k}, 'filled');
+        
+        % Vertical error bars
+        if any(~isnan(yerr(idx)))
+            errorbar(x(idx), y(idx), yerr(idx), ...
+                     'LineStyle','none','Color',clr(k,:), ...
+                     'CapSize',0, 'HandleVisibility','off');
+        end
+
+        % Horizontal error bars
+        xi = x(idx); yi = y(idx); xe = xerr(idx);
+        for j = 1:numel(xi)
+            if ~isnan(xe(j))
+                line([xi(j)-xe(j), xi(j)+xe(j)], [yi(j), yi(j)], ...
+                     'Color',clr(k,:), 'HandleVisibility','off');
+            end
+        end
+    end
+    xlabel(xlab,'Interpreter','none');
+    ylabel(ylab,'Interpreter','none');
+    if revY, set(gca,'YDir','reverse'); end
+    legend(h, classes, 'Location','best');
+    box on; title(ttl);
+end
+%הפונקציה מקבלת משתנה אחד ואת סוג הגלקסיה
+%טענת יציאה: הפונקציה מוציאה גרף של הערך וסוג הגלקסיה
+function scatterGalaxyErr(tbl,y,yerr,classes,clr,mrk,ylab,ttl)
+    figure('Name',ttl); hold on;
+    galOrder = categories(tbl.GalCat);
+    for k = 1:numel(classes)
+        idx = (tbl.class==classes(k)) & ~isundefined(tbl.GalCat);
+        x   = double(tbl.GalCat(idx)); 
+        scatter(x, y(idx), 36, clr(k,:), mrk{k}, 'filled');
+        if any(~isnan(yerr(idx)))
+            errorbar(x, y(idx), yerr(idx), ...
+                     'LineStyle','none','Color',clr(k,:), ...
+                     'CapSize',0);
+        end
+    end
+    set(gca,'XTick',1:numel(galOrder),'XTickLabel',galOrder);
+    xlabel('Galaxy type');
+    ylabel(ylab);
+    legend(classes,'Location','best'); box on; title(ttl);
+end
+%טענת כניסה: הפונקציה מקבלת את הקבוצות, הערכים, ושם של משתנה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הKS עבור הקבוצות והמשתנה
+function ksCompare(tbl, classes, varName)
+    fprintf('\nK–S tests for variable: %s\n', varName);
+    combs = nchoosek(1:numel(classes), 2);  % all class pairs
+
+    for i = 1:size(combs,1)
+        c1 = classes(combs(i,1));
+        c2 = classes(combs(i,2));
+
+        x = tbl{tbl.class == c1, varName};
+        y = tbl{tbl.class == c2, varName};
+
+        x = x(~isnan(x));  % remove NaNs
+        y = y(~isnan(y));
+
+        if isempty(x) || isempty(y)
+            fprintf('%s vs %s: insufficient data\n', c1, c2);
+            continue;
+        end
+
+        [h,p] = kstest2(x,y);
+        fprintf('%s vs %s: p = %.4f (h = %d)\n', c1, c2, p, h);
+
+%גרפים של מבחן הKS
+        figure('Name',sprintf('%s vs %s (%s)',c1,c2,varName));
+        hold on;
+        cdfplot(x); cdfplot(y);
+        legend(c1, c2, 'Location','best');
+        title(sprintf('ECDF: %s vs %s (%s)', c1, c2, varName));
+        xlabel(varName); ylabel('Cumulative probability');
+        box on;
+    end
+end
