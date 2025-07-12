@@ -1,0 +1,222 @@
+%מערכים בהם יש את הערכים מתוך מאגר הנתונים כאשר
+%NaN = ערך לא ידוע
+names = { ...
+    'SN 2002es','SN 1999bh','SN 2010lp','PTF 10ops','iPTF 14atg', ...
+    'SN 2020qxp','SN 2007cq','SN 2019yvq','SN 2016ije', ...
+    'SN 2006bt','SN 2022vqz','SN 2022ywc'};
+
+peakMag  = [-17.78 -17.71 -17.70 -17.77 -17.6  -17.10 -19.40 -18.40 -17.65 -18.83 -18.11 -19];
+B15      = [  1.28   1.30   1.24   1.12   1.25   1.35   1.10   1.35   1.35   1.09   1.33   NaN];
+hostT    = [   2      4.5      3      3      2      4.5      5     2     NaN     2     2     1  ];  % E=1 … Irr=7
+logOff   = [0.1761 0.5563 0.4314 2.1703 0.6294 0.2788 0.5105 0.0000 -0.1024 1.5276 0.3010 1.3222];
+Ni56mass = [0.17 NaN 0.08 0.17 0.18 0.09 NaN 0.31 0.14 0.25 0.20 0.70];
+
+%שינוי שם המשתנה של מערך הגלקסיות המארחות
+galT = hostT;  
+%שינוי של מערך הגלקסיות המארחות מערכים מספריים לסוגי הגלקסיות
+catTicks = [1 2 3 4 4.5 5 6 7 8];
+catLabs  = {'E','S0','SA','Sa/Sab','Sb/SB','Sbc','Sc','Sd','Irr'};
+% פונקציה שמשייכת לכל מספר סוג גלקסיה לפי הסדר של הגלקסיות שכתוב
+hostCat = @(x) categorical(x,catTicks,catLabs,'Ordinal',true);
+mkSize = 50;
+
+%% (1) Peak |M_B|  vs  \Delta m15(B)
+%טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית והירידה באור מסוג בי
+%15 ימים אחרי השיא
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני
+figure('Name','(1) Peak M_B vs \Delta m15(B)','NumberTitle','off');
+scatter(B15, peakMag, mkSize, 'filled');
+set(gca,'YDir','reverse');
+xlabel('\Delta m_{15}(B)'); ylabel('Peak |M_B|');
+title('Peak M_B  vs  \Delta m_{15}(B)');
+
+%% (2) Peak |M_B|  vs  host galaxy type
+%טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית ואת סוג הגלקסיה של
+%הסופרנובה
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני
+figure('Name','(2) Peak M_B vs Host Type','NumberTitle','off');
+scatter(hostCat(hostT), peakMag, mkSize, 'filled');
+set(gca,'YDir','reverse');
+xlabel('Host galaxy type'); ylabel('Peak |M_B|');
+title('Peak M_B  vs  Host type');
+xtickangle(45);
+
+%% (3) Peak |M_B|  vs  log10(offset)
+%טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית ולוג של המרחק ממרכז
+%הגלקסיה של הסופרנובה
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני
+figure('Name','(3) Peak M_B vs log10(offset)','NumberTitle','off');
+scatter(logOff, peakMag, mkSize, 'filled');
+set(gca,'YDir','reverse');
+xlabel('log_{10}(offset [kpc])'); ylabel('Peak |M_B|');
+title('Peak M_B  vs  log_{10}(offset)');
+
+%% (4) \Delta m15(B)  vs  host galaxy type
+figure('Name','(4) \Delta m15(B) vs Host Type','NumberTitle','off');
+scatter(hostCat(hostT), B15, mkSize, 'filled');
+xlabel('Host galaxy type'); ylabel('\Delta m_{15}(B)');
+title('\Delta m_{15}(B)  vs  Host type');
+xtickangle(45);
+
+%% (5) \Delta m15(B)  vs  log10(offset)
+% טענת כניסה: הפונקציה מקבלת את הירידה באור מסוג בי 15 ימים אחרי השיא ולוג
+% של מרחק הסופרנובה ממרכז הגלקסיה
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני 
+figure('Name','(5) \Delta m15(B) vs log10(offset)','NumberTitle','off');
+scatter(logOff, B15, mkSize, 'filled');
+xlabel('log_{10}(offset [kpc])'); ylabel('\Delta m_{15}(B)');
+title('\Delta m_{15}(B)  vs  log_{10}(offset)');
+
+%% (6) log10(offset)  vs  host galaxy type
+% טענת כניסה: הפונקציה מקבלת את סוג הגלקסיה ואת המרחק של הסופרנובה ממרכז
+% הגללקסיה
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני
+figure('Name','(6) log10(offset) vs Host Type','NumberTitle','off');
+scatter(hostCat(hostT), logOff, mkSize, 'filled');
+xlabel('Host galaxy type'); ylabel('log_{10}(offset [kpc])');
+title('log_{10}(offset)  vs  Host type');
+xtickangle(45);
+
+%% (7) Ni56 vs peak absolute mag
+% טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית ומסת הניקל56 
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני
+figure('Name','(7) Ni56 mass vs Peak absolute mag','NumberTitle','off');
+scatter(Ni56mass, peakMag, mkSize, 'filled');
+set(gca,'YDir','reverse');
+xlabel('^{56}Ni mass'); ylabel('Peak |M_B|');
+title('^{56}Ni mass vs Peak absolute magnitude');
+
+%% (8) Ni56 vs B15
+% טענת כניסה: הפונקציה מקבלת את הירידה באור מסוג בי 15 ימים אחרי השיא ואת
+% כמות הניקל 56
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני
+figure('Name','(8) B15 vs Ni56 mass','NumberTitle','off');
+scatter(Ni56mass, B15, mkSize, 'filled');
+xlabel('^{56}Ni mass'); ylabel('\Delta m_{15}(B)');
+title('^{56}Ni mass vs \Delta m_{15}(B)');
+
+%% (9) Ni56 vs log10(offset)
+% טענת כניסה: הפונקציה מקבלת את כמות הניקל 56 ולוג של מרחק הסופרנובה ממרכז
+% הגלקסיה
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני
+figure('Name','(9) Ni56 mass vs log10(offset)','NumberTitle','off');
+scatter(Ni56mass, logOff, mkSize, 'filled');
+xlabel('^{56}Ni mass'); ylabel('log_{10}(offset [kpc])');
+title('^{56}Ni mass vs log_{10}(offset)');
+
+%% (10) Ni56 vs Galaxy type
+%טענת כניסה: הפונקציה מקבלת את כמות הניקל56 ואת סוג הגלקסיה של הסוםרנובה
+%טענת יציאה: הפונקציה מחזירה גרף המציג את שני הפרמטרים אחד למול השני
+figure('Name','(10) Galaxy type vs Ni56 mass','NumberTitle','off');
+scatter(hostCat(hostT), Ni56mass, mkSize, 'filled');
+ylabel('^{56}Ni mass'); xlabel('Galaxy type');
+title('^{56}Ni mass vs Galaxy type');
+xtickangle(45);
+%% Correlation test 1
+%טענת כניסה: הפונקציה מקבלת את ערכי שיא הבהירות האבסולוטית והירידה באור
+%מסוג בי 15 ימים אחרי השיא
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם 
+%p = בודק האם הקשר מקרי ( p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(peakMag) & ~isnan(B15);
+
+[r, p] = corr(B15(valid)', peakMag(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between Peak M_B and Δm15(B): r = %.3f, p = %.4f\n', r, p);
+
+%% Correlation test 2
+% טענת כניסה: הפונקציה מקבלת את את שיא הבהירות האבסולוטית ומסת הניקל56
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי ( p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(peakMag) & ~isnan(Ni56mass);
+
+[r, p] = corr(Ni56mass(valid)', peakMag(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between Peak M_B and Ni56: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 3
+% טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית ולוג של מרחק
+% הסופרנובה ממרכז הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(peakMag) & ~isnan(logOff);
+
+[r, p] = corr(logOff(valid)', peakMag(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between Peak M_B and offset: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 4
+% טענת כניסה: הפונקציה מקבלת את הירידה באור מסוג בי 15 ימים אחרי השיא ואת
+% מסת הניקל56
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(B15) & ~isnan(Ni56mass);
+
+[r, p] = corr(B15(valid)', Ni56mass(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between B15 and Ni56: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 5
+% טענת כניסה: הפונקציה מקבלת את הירידה באור מסוג בי 15 ימים אחרי השיא ולוג
+% של מרחק הסופרנובה ממרכז הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(B15) & ~isnan(logOff);
+
+[r, p] = corr(B15(valid)', logOff(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between B15 and offset: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 6
+% טענת כניסה: הפונקציה מקבלת את מסת הניקל56 ולוג של מרחק הסופרנובה ממרכז
+% הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(Ni56mass) & ~isnan(logOff);
+
+[r, p] = corr(Ni56mass(valid)', logOff(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between Ni56 and offset: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 7
+% טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית וסוג הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(hostT) & ~isnan(peakMag);
+
+[r, p] = corr(hostT(valid)', peakMag(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between peak absolute mag and host type: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 8
+% טענת כניסה: הפונקציה מקבלת את הירידה באור מסוג בי 15 ימים אחרי השיא ואת
+% סוג הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(hostT) & ~isnan(B15);
+
+[r, p] = corr(hostT(valid)', B15(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between B15 and host type: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 9
+% טענת כניסה: הפונקציה מקבלת את סוג הגלקסיה ולוג של מרחק הסופרנובה ממרכז
+% הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(hostT) & ~isnan(logOff);
+
+[r, p] = corr(hostT(valid)', logOff(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between offset and host type: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 10
+% טענת כניסה: הפונקציה מקבלת את סוג הגלקסיה ואת מסת הניקל56
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(hostT) & ~isnan(Ni56mass);
+
+[r, p] = corr(hostT(valid)', Ni56mass(valid)', 'Type', 'Pearson');  % or 'Spearman'
+
+fprintf('Correlation between Ni56 mass and host type: r = %.3f, p = %.4f\n', r, p);
