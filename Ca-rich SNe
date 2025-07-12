@@ -1,0 +1,120 @@
+%ארבעת הערכים שיוכנסו לגרפים כמערכים
+clear; clc;
+names = { ...
+  'SN 2005E' 'SN 2007ke' 'PTF09dav' 'SN 2010et' 'PTF11bij' 'PTF11kmb' ...
+  'SN 2012hn' 'PTF12bho' 'SN 2016hgs' 'SN 2016hnk' 'SN 2018ckd' 'SN 2018gjx' ...
+  'SN 2018jak' 'SN 2018kjy' 'SN 2018lqo' 'SN 2019bkc' 'SN 2019ehk' 'SN 2019hvg' ...
+  'SN 2019hty' 'SN 2019ofm' 'SN 2019pof' 'SN 2019pxu' 'SN 2020sbw' 'SN 2021gno' ...
+  'SN 2021inl' 'SN 2021pb' 'SN 2021sjt' 'SN 2022oqm' };
+
+peakMag = [ ...
+  -15.53 -16.59 -16.22 -15.69 -15.68 -15.57 -15.55 -16.04 -15.45 -17.05 ...
+  -16.17 -17.51 -17.64 -15.63 -16.21 -17.32 -16.09 -16.70 -16.38 -17.03 ...
+  -15.94 -16.56 -17.10 -15.44 -14.81 -16.92 -15.00 -17.37 ];
+
+r7 = [ ...
+   0.55 0.33 0.49 0.49 0.45 0.28 0.14 0.42 0.42 0.32 ...
+   0.54 0.68 1.05 0.31 0.41 2.05 0.25 0.23 0.33 0.34 ...
+   0.53 0.30 0.31 0.83 0.38 0.67 0.44 0.36 ];
+
+logOff = [ ...
+   1.38507 1.22298 1.62066 1.57565 1.53681 2.17624 0.82802 2.17609 0.77815 0.56937 ...
+   1.28058 NaN     0.85126 0.80277 1.06446 NaN     0.25527 0.57978 0.94101 1.04766 ...
+   NaN     1.24452 0.63347 0.55630 1.36736 0.54407 0.43136 1.11727 ];
+
+galType = { ...
+  'S0' 'E' 'S' 'E' 'S0' 'S0' 'S0' '' 'S' 'SB' '' 'SA' '' 'S0' 'E' '' ...
+  'SA' '' '' 'SA' '' '' '' 'SAB' 'S0' '' 'SAB (ned)' 'S' };
+
+%סידור סוגי הגלקסיות לפי הסדר
+galOrder = ["E" "S0" "SA" "SAB" "SB" "S" "Sc" "Sd" "Sm" "Im" "Irr"];
+galClean = strtrim(regexprep(upper(string(galType)), '\s*\(.*\)', ''));
+galX     = NaN(size(galClean));
+
+for i = 1:numel(galClean)
+    idx = find(strcmp(galClean(i), galOrder), 1);
+    if ~isempty(idx), galX(i) = idx; end
+end
+
+%צביעה של נקודות בעלות עם שיא בהירות אבסולוטית מעל 16.5- באדום
+blueIdx = peakMag <= -16.5;
+redIdx  = peakMag > -16.5;
+
+
+%פונקציה שעוזרת להפוך את ציר הוואי בגרפים שצריך (שיא בהירות אבסולוטית)
+revY = @(ax) set(ax,'YDir','reverse');
+
+%יצירה של כל ששת הגרפים
+% 1. Peak M vs r7
+valid = ~isnan(peakMag) & ~isnan(r7);
+figure;
+dualScatter(r7(valid), peakMag(valid), redIdx(valid));
+xlabel('r_7  (mag)'); ylabel('Peak absolute magnitude');
+title(sprintf('Peak M vs r_7  (N = %d)', sum(valid))); revY(gca);
+
+% 2. Peak M vs Galaxy Type  (exclude unknown morphologies)
+valid = ~isnan(peakMag) & ~isnan(galX);
+figure;
+dualScatter(galX(valid), peakMag(valid), redIdx(valid));
+set(gca,'XTick',1:numel(galOrder),'XTickLabel',galOrder);
+xlabel('Host-galaxy morphology'); ylabel('Peak absolute magnitude');
+title(sprintf('Peak M vs Galaxy Type  (N = %d)', sum(valid))); revY(gca);
+
+% 3. Peak M vs log10(offset)
+valid = ~isnan(peakMag) & ~isnan(logOff);
+figure;
+dualScatter(logOff(valid), peakMag(valid), redIdx(valid));
+xlabel('log_{10}(offset [kpc])'); ylabel('Peak absolute magnitude');
+title(sprintf('Peak M vs log_{10}(offset)  (N = %d)', sum(valid))); revY(gca);
+
+% 4. r7 vs Galaxy Type  (exclude unknown morphologies)
+valid = ~isnan(r7) & ~isnan(galX);
+figure;
+dualScatter(galX(valid), r7(valid), redIdx(valid));
+set(gca,'XTick',1:numel(galOrder),'XTickLabel',galOrder);
+xlabel('Host-galaxy morphology'); ylabel('r_7  (mag)');
+title(sprintf('r_7 vs Galaxy Type  (N = %d)', sum(valid)));
+
+% 5. r7 vs log10(offset)
+valid = ~isnan(r7) & ~isnan(logOff);
+figure;
+dualScatter(logOff(valid), r7(valid), redIdx(valid));
+xlabel('log_{10}(offset [kpc])'); ylabel('r_7  (mag)');
+title(sprintf('r_7 vs log_{10}(offset)  (N = %d)', sum(valid)));
+
+% 6. log10(offset) vs Galaxy Type  (exclude unknown morphologies)
+valid = ~isnan(logOff) & ~isnan(galX);
+figure;
+dualScatter(galX(valid), logOff(valid), redIdx(valid));
+set(gca,'XTick',1:numel(galOrder),'XTickLabel',galOrder);
+xlabel('Host-galaxy morphology'); ylabel('log_{10}(offset [kpc])');
+title(sprintf('log_{10}(offset) vs Galaxy Type  (N = %d)', sum(valid)));
+
+%פונקציה שעוזרת בלדעת איזה נקודות לצבוע באדום ואיזה בכחול
+function dualScatter(x, y, highlightMask)
+    scatter(x(~highlightMask), y(~highlightMask), 36, 'b', 'filled'); hold on;
+    scatter(x( highlightMask), y( highlightMask), 36, 'r', 'filled'); hold off;
+    grid on;
+end
+
+% Group definitions
+redIdx  = peakMag > -16.5;
+blueIdx = ~redIdx;
+
+%הרצה של מבחני KS
+fprintf('\nK–S tests: blue vs. red subsamples\n');
+ksPrint(peakMag,  blueIdx, redIdx, 'Peak |M|');
+ksPrint(r7,       blueIdx, redIdx, 'r_7');
+ksPrint(logOff,   blueIdx, redIdx, 'log_{10}(offset)');
+
+%פונקציה שמקבלת את הערכים של הקבוצות הכחולה והאדומה ומחזירה את ערכי הKS
+function ksPrint(x, blueMask, redMask, label)
+    xa = x(blueMask & isfinite(x));
+    xb = x(redMask  & isfinite(x));
+    if numel(xa) < 2 || numel(xb) < 2
+        fprintf('%-18s — too few data\n', label);
+        return
+    end
+    [h, p, ks] = kstest2(xa, xb);
+    fprintf('%-18s  KS = %.3f   p = %.3g   h = %d\n', label, ks, p, h);
+end
