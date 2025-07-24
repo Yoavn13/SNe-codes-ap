@@ -118,3 +118,55 @@ function ksPrint(x, blueMask, redMask, label)
     [h, p, ks] = kstest2(xa, xb);
     fprintf('%-18s  KS = %.3f   p = %.3g   h = %d\n', label, ks, p, h);
 end
+%% Correlation test 1
+%טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית והירידה באור מסוג אר
+%אחרי 7 ימים
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם 
+%p = בודק האם הקשר מקרי ( p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(peakMag) & ~isnan(r7);
+[r, p] = corr(r7(valid)', peakMag(valid)', 'Type', 'Pearson');
+fprintf('Correlation between Peak M_r and Δm7(r): r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 2
+% טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית ולוג של מרחק
+% הסופרנובה ממרכז הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(peakMag) & ~isnan(logOff);
+[r, p] = corr(logOff(valid)', peakMag(valid)', 'Type', 'Pearson');
+fprintf('Correlation between Peak M_r and offset: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 3
+% טענת כניסה: הפונקציה מקבלת את הירידה באור מסוג אר 7 ימים אחרי השיא ולוג של מרחק הסופרנובה ממרכז הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(r7) & ~isnan(logOff);
+[r, p] = corr(r7(valid)', logOff(valid)', 'Type', 'Pearson');
+fprintf('Correlation between r7 and offset: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 4
+% טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית וסוג הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(galX) & ~isnan(peakMag);
+[r, p] = corr(galX(valid)', peakMag(valid)', 'Type', 'Pearson');
+fprintf('Correlation between peak absolute mag and host type: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 5
+%טענת כניסה: הפונקציה מקבלת את ערכי הירדה באור מסוג אר 7 ימים אחרי השיא
+%ואת סוג הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(galX) & ~isnan(r7);
+[r, p] = corr(galX(valid)', r7(valid)', 'Type', 'Pearson');
+fprintf('Correlation between r7 and host type: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 6
+% טענת כניסה: הפונקציה מקבלת את סוג הגלקסיה ולוג של מרחק הסופרנובה ממרכז
+% הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(galX) & ~isnan(logOff);
+[r, p] = corr(galX(valid)', logOff(valid)', 'Type', 'Pearson');
+fprintf('Correlation between offset and host type: r = %.3f, p = %.4f\n', r, p);
