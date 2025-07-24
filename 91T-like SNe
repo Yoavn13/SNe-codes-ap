@@ -119,7 +119,7 @@ scatter(galCat(idx), logOffset(idx), 40, C(idx,:), 'filled', 'MarkerFaceAlpha', 
 xlabel('Galaxy Type'); ylabel('log_{10}(Offset)');
 title(sprintf('91T | log_{10}(Offset) vs Galaxy Type (N = %d)', sum(idx)));
 xtickangle(45);
-%% KS tset
+%% KS test
 %מבחנים סטטיסטיים של שני הקלסטרים שנמצאו (אדום וירוק) עבור כל אחד מהערכים
 
 % --- 1) Peak absolute magnitude --------------------------------
@@ -144,3 +144,59 @@ fprintf('\nKS test  (Offset in kpc)\n');
 fprintf('  h  = %d  (0 = same dist., 1 = reject H0 at α = 0.05)\n', o_h);
 fprintf('  p  = %.4f\n', o_p);
 fprintf('  ks = %.4f\n', o_ks);
+% המרה של סוגי הגלקסיות לערך מספרי עבור מבחני קורלציה
+catOrder = ["S0","Sa","Sc","SA","SB","Irr"];
+galCat = categorical(galaxyType, catOrder, 'Ordinal', true);
+hostT = double(galCat);
+%% Correlation test 1
+%טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית והירידה באור מסוג אר
+%אחרי 15 ימים
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם 
+%p = בודק האם הקשר מקרי ( p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(peakMag) & ~isnan(r15);
+[r, p] = corr(r15(valid)', peakMag(valid)', 'Type', 'Pearson');
+fprintf('Correlation between Peak M_B and Δm15(r): r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 2
+% טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית ולוג של מרחק
+% הסופרנובה ממרכז הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(peakMag) & ~isnan(logOffset);
+[r, p] = corr(logOffset(valid)', peakMag(valid)', 'Type', 'Pearson');
+fprintf('Correlation between Peak M_B and offset: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 3
+% טענת כניסה: הפונקציה מקבלת את הירידה באור מסוג אר 15 ימים אחרי השיא ולוג של מרחק הסופרנובה ממרכז הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
+valid = ~isnan(r15) & ~isnan(logOffset);
+[r, p] = corr(r15(valid)', logOffset(valid)', 'Type', 'Pearson');
+fprintf('Correlation between r15 and offset: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 4
+% טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית וסוג הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(hostT) & ~isnan(peakMag);
+[r, p] = corr(hostT(valid)', peakMag(valid)', 'Type', 'Pearson');
+fprintf('Correlation between peak absolute mag and host type: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 5
+%טענת כניסה: הפונקציה מקבלת את ערכי הירדה באור מסוג אר 15 ימים אחרי השיא
+%ואת סוג הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(hostT) & ~isnan(r15);
+[r, p] = corr(hostT(valid)', r15(valid)', 'Type', 'Pearson');
+fprintf('Correlation between r15 and host type: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 6
+% טענת כניסה: הפונקציה מקבלת את סוג הגלקסיה ולוג של מרחק הסופרנובה ממרכז
+% הגלקסיה
+%טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+%r = מקדם המתאם
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(hostT) & ~isnan(logOffset);
+[r, p] = corr(hostT(valid)', logOffset(valid)', 'Type', 'Pearson');
+fprintf('Correlation between offset and host type: r = %.3f, p = %.4f\n', r, p);
