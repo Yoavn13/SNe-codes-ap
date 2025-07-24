@@ -156,7 +156,7 @@ hostT = double(galCat);
 %p = בודק האם הקשר מקרי ( p < 0.05: הקשר הוא לא רק במקרה)
 valid = ~isnan(peakMag) & ~isnan(r15);
 [r, p] = corr(r15(valid)', peakMag(valid)', 'Type', 'Pearson');
-fprintf('Correlation between Peak M_B and Δm15(r): r = %.3f, p = %.4f\n', r, p);
+fprintf('Correlation between Peak M_r and Δm15(r): r = %.3f, p = %.4f\n', r, p);
 %% Correlation test 2
 % טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית ולוג של מרחק
 % הסופרנובה ממרכז הגלקסיה
@@ -165,7 +165,7 @@ fprintf('Correlation between Peak M_B and Δm15(r): r = %.3f, p = %.4f\n', r, p)
 %p = בודק האם הקשר מקרי (p < 0.05: הקשר הוא לא רק במקרה)
 valid = ~isnan(peakMag) & ~isnan(logOffset);
 [r, p] = corr(logOffset(valid)', peakMag(valid)', 'Type', 'Pearson');
-fprintf('Correlation between Peak M_B and offset: r = %.3f, p = %.4f\n', r, p);
+fprintf('Correlation between Peak M_r and offset: r = %.3f, p = %.4f\n', r, p);
 %% Correlation test 3
 % טענת כניסה: הפונקציה מקבלת את הירידה באור מסוג אר 15 ימים אחרי השיא ולוג של מרחק הסופרנובה ממרכז הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
