@@ -188,3 +188,38 @@ fprintf('Correlation between r15 and host type: r = %.3f, p = %.4f\n', r, p);
 valid = ~isundefined(galCat) & ~isnan(logOffset);
 [r, p] = corr(double(galCat(valid))', logOffset(valid)', 'Type', 'Pearson');
 fprintf('Correlation between offset and host type: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 7
+% טענת כניסה: הפונקציה מקבלת את ערכי המתכתיות ואת שיא הבהירות האבסולוטית של
+% הסופרנובות
+% טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+% r = מקדם המתאם
+% p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(peakMag) & ~isnan(metallic);
+[r, p] = corr(metallic(valid)', peakMag(valid)', 'Type', 'Pearson');
+fprintf('Correlation between Peak M_r and metallicity: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 8
+% טענת כניסה: הפונקציה מקבלת את ערכי המתכתיות והירידה באור מסוג אר 15 ימים
+% אחרי השיא של הסופרנובות
+% טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+% r = מקדם המתאם
+% p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(r15) & ~isnan(metallic);
+[r, p] = corr(metallic(valid)', r15(valid)', 'Type', 'Pearson');
+fprintf('Correlation between r15 and metallicity: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 9
+% טענת כניסה: הפונקציה מקבלת את ערכי המתכתיות ולוג של מרחק הסופרנובות ממרכז
+% הגלקסיה
+% טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+% r = מקדם המתאם
+% p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isnan(logOffset) & ~isnan(metallic);
+[r, p] = corr(metallic(valid)', logOffset(valid)', 'Type', 'Pearson');
+fprintf('Correlation between offset and metallicity: r = %.3f, p = %.4f\n', r, p);
+%% Correlation test 10
+% טענת כניסה: הפונקציה מקבלת את ערכי המתכתיות וסוגי הגלקסיות של הסופרנובות
+% טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
+% r = מקדם המתאם
+% p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+valid = ~isundefined(galCat) & ~isnan(metallic);
+[r, p] = corr(double(galCat(valid))', metallic(valid)', 'Type', 'Pearson');
+fprintf('Correlation between metallicity and host type: r = %.3f, p = %.4f\n', r, p);
