@@ -182,7 +182,7 @@ fprintf('Correlation between Ni56 and offset: r = %.3f, p = %.4f\n', r, p);
 % טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית וסוג הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(peakMag);
 
 [r, p] = corr(hostT(valid)', peakMag(valid)', 'Type', 'Pearson');  % or 'Spearman'
