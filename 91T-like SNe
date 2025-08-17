@@ -178,7 +178,7 @@ fprintf('Correlation between r15 and offset: r = %.3f, p = %.4f\n', r, p);
 % טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית וסוג הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(peakMag);
 [r, p] = corr(hostT(valid)', peakMag(valid)', 'Type', 'Pearson');
 fprintf('Correlation between peak absolute mag and host type: r = %.3f, p = %.4f\n', r, p);
@@ -187,7 +187,7 @@ fprintf('Correlation between peak absolute mag and host type: r = %.3f, p = %.4f
 %ואת סוג הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(r15);
 [r, p] = corr(hostT(valid)', r15(valid)', 'Type', 'Pearson');
 fprintf('Correlation between r15 and host type: r = %.3f, p = %.4f\n', r, p);
@@ -196,7 +196,7 @@ fprintf('Correlation between r15 and host type: r = %.3f, p = %.4f\n', r, p);
 % הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(logOffset);
 [r, p] = corr(hostT(valid)', logOffset(valid)', 'Type', 'Pearson');
 fprintf('Correlation between offset and host type: r = %.3f, p = %.4f\n', r, p);
