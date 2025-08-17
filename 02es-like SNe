@@ -193,7 +193,7 @@ fprintf('Correlation between peak absolute mag and host type: r = %.3f, p = %.4f
 % סוג הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(B15);
 
 [r, p] = corr(hostT(valid)', B15(valid)', 'Type', 'Pearson');  % or 'Spearman'
@@ -204,7 +204,7 @@ fprintf('Correlation between B15 and host type: r = %.3f, p = %.4f\n', r, p);
 % הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(logOff);
 
 [r, p] = corr(hostT(valid)', logOff(valid)', 'Type', 'Pearson');  % or 'Spearman'
@@ -214,7 +214,7 @@ fprintf('Correlation between offset and host type: r = %.3f, p = %.4f\n', r, p);
 % טענת כניסה: הפונקציה מקבלת את סוג הגלקסיה ואת מסת הניקל56
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(Ni56mass);
 
 [r, p] = corr(hostT(valid)', Ni56mass(valid)', 'Type', 'Pearson');  % or 'Spearman'
