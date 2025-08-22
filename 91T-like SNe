@@ -20,7 +20,7 @@ offset = [0.92 3.7 5.76 0.7 1.5 9.08 1.93 ...
           0.29 0.95 0.9 6.0 12.1 0.1 2.9 4.3 0.2 ...
           10.6];
 
-galaxyType = ["S0" "Sa" "Disk" "Sc" "Irr" "Unknown" "Sa" ...
+galaxyType = ["Unknown" "Sa" "Disk" "Sc" "Irr" "Unknown" "Sa" ...
               "Unknown" "Unknown" "Unknown" "Sc" "Unknown" "Unknown" "SA" ...
               "Unknown" "Unknown" "S" "Unknown" "Sa" "Unknown" ...
               "Unknown" "Unknown" "Unknown" "SB" "Unknown" "Unknown" "Unknown" "Unknown" ...
@@ -64,6 +64,20 @@ set(gca,'YDir','reverse');
 xlabel('r_{15}'); ylabel('Peak Abs. Mag');
 title(sprintf('91T | Peak M_{abs} vs r_{15} (N = %d)', sum(idx)));
 legend({'other 91T-like','red cluster','green cluster'},'Location','southwest');
+hold on; grid on
+% your masks & C as given above...
+% C: N×3 RGB for each point
+
+figure; hold on; grid on
+scatter3(r15, peakMag, logOffset, 28, C, 'filled');  % 28 = marker size
+xlabel('r15'); ylabel('peakMag'); zlabel('logOffset'); view(3)
+
+% optional legend (create dummy handles just for labels)
+hR = scatter3(NaN,NaN,NaN,28,[1 0 0],'filled');
+hG = scatter3(NaN,NaN,NaN,28,[0 0.6 0],'filled');
+hB = scatter3(NaN,NaN,NaN,28,[0 0.447 0.741],'filled');
+legend([hR,hG,hB],{'Red','Green','Other'},'Location','best')
+
 
 %% (2) Peak Mabs vs log10(offset)
 %טענת כניסה: מקבל את שיא הבהירות האבסולוטית ולוג של מרחק הסופרנובה ממרכז
@@ -178,7 +192,7 @@ fprintf('Correlation between r15 and offset: r = %.3f, p = %.4f\n', r, p);
 % טענת כניסה: הפונקציה מקבלת את שיא הבהירות האבסולוטית וסוג הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(peakMag);
 [r, p] = corr(hostT(valid)', peakMag(valid)', 'Type', 'Pearson');
 fprintf('Correlation between peak absolute mag and host type: r = %.3f, p = %.4f\n', r, p);
@@ -187,7 +201,7 @@ fprintf('Correlation between peak absolute mag and host type: r = %.3f, p = %.4f
 %ואת סוג הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(r15);
 [r, p] = corr(hostT(valid)', r15(valid)', 'Type', 'Pearson');
 fprintf('Correlation between r15 and host type: r = %.3f, p = %.4f\n', r, p);
@@ -196,7 +210,8 @@ fprintf('Correlation between r15 and host type: r = %.3f, p = %.4f\n', r, p);
 % הגלקסיה
 %טענת יציאה: הפונקציה מוציאה את ערכי מבחן הקורלציה של שני הערכים
 %r = מקדם המתאם
-%p = בודק האם הקשר מקרי (p < 0.05: הקשר לא רק במקרה)
+%p = בודק האם הקשר מקרי (p > 0.05: הקשר לא רק במקרה)
 valid = ~isnan(hostT) & ~isnan(logOffset);
 [r, p] = corr(hostT(valid)', logOffset(valid)', 'Type', 'Pearson');
 fprintf('Correlation between offset and host type: r = %.3f, p = %.4f\n', r, p);
+plot3(r15,peakMag,logOffset)
