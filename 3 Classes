@@ -1,5 +1,5 @@
 %קריאה של קובץ מאגר הנתונים
-fname = 'SNe DB (10).xlsx';
+fname = 'SNe DB (11).xlsx';
 tbl   = readtable(fname,'VariableNamingRule','preserve');
 %שמירה של תת קבוצה
 keepSubclass  = contains(tbl.class,["Iax","91T","Ca"],'IgnoreCase',true);
