@@ -65,14 +65,13 @@ xlabel('r_{15}'); ylabel('Peak Abs. Mag');
 title(sprintf('91T | Peak M_{abs} vs r_{15} (N = %d)', sum(idx)));
 legend({'other 91T-like','red cluster','green cluster'},'Location','southwest');
 hold on; grid on
-% your masks & C as given above...
-% C: N×3 RGB for each point
+%יצירה של גרף תלת מימדי המציג ירידה באור מסוג אר 15 ימים אחרי השיא, שיא בהירות אבסולוטית ולוג של מרחק הסופרנובה ממרכז הגלקסיה
 
 figure; hold on; grid on
 scatter3(r15, peakMag, logOffset, 28, C, 'filled');  % 28 = marker size
 xlabel('r15'); ylabel('peakMag'); zlabel('logOffset'); view(3)
 
-% optional legend (create dummy handles just for labels)
+% יצירה של לג'נד המציג כל צבע
 hR = scatter3(NaN,NaN,NaN,28,[1 0 0],'filled');
 hG = scatter3(NaN,NaN,NaN,28,[0 0.6 0],'filled');
 hB = scatter3(NaN,NaN,NaN,28,[0 0.447 0.741],'filled');
