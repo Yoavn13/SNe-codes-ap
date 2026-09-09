@@ -8,11 +8,21 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.io.votable import parse
 
+
+# ============================================================
+# FILES
+# ============================================================
+
 INPUT_CSV = r"C:\Users\amirn\Downloads\supernovae.csv"
 OUTPUT_CSV = r"C:\Users\amirn\Downloads\supernovae_with_ned_data.csv"
 
 SN_NAME_COL = "sn_name"
 HOST_NAME_COL = "host_name"
+
+
+# ============================================================
+# NED API
+# ============================================================
 
 NED_CONE_URL = (
     "https://ned.ipac.caltech.edu/"
@@ -171,7 +181,7 @@ def request_votable(
 
 
 # ============================================================
-# VOTABLE FIELD RECORDS
+# READ ALL VOTABLE FIELDS
 # ============================================================
 
 def all_field_records(votable):
@@ -202,6 +212,7 @@ def all_field_records(votable):
                     continue
 
                 records.append({
+
                     "table":
                         table,
 
@@ -329,7 +340,7 @@ def get_text_exact(
 
 
 # ============================================================
-# FIND COLUMN IN ONE TABLE
+# FIND COLUMN IN A VOTABLE TABLE
 # ============================================================
 
 def find_table_column(
@@ -364,7 +375,7 @@ def find_table_column(
 
 
 # ============================================================
-# NED REDSHIFT TABLE
+# SN REDSHIFT MEASUREMENTS
 # ============================================================
 
 def get_ned_redshift_measurements(
@@ -533,7 +544,7 @@ def get_ned_redshift_measurements(
 
 
 # ============================================================
-# SELECT BEST NED REDSHIFT
+# SELECT BEST SN REDSHIFT
 # ============================================================
 
 def select_ned_redshift(
@@ -543,10 +554,7 @@ def select_ned_redshift(
     if not measurements:
         return None
 
-    # --------------------------------------------------------
-    # First choice: NED Fiducial row
-    # --------------------------------------------------------
-
+    # First choice: NED fiducial row
     fiducial_rows = [
         measurement
         for measurement in measurements
@@ -559,14 +567,11 @@ def select_ned_redshift(
 
         chosen[
             "selection"
-        ] = "NED fiducial redshift"
+        ] = "NED fiducial"
 
         return chosen
 
-    # --------------------------------------------------------
     # Otherwise rank measurements
-    # --------------------------------------------------------
-
     def technique_rank(text):
 
         text = str(text).strip().upper()
@@ -600,7 +605,6 @@ def select_ned_redshift(
             .upper()
         )
 
-        # Put questionable rows later
         bad_quality = (
             1
             if (
@@ -627,9 +631,11 @@ def select_ned_redshift(
         if np.isfinite(
             uncertainty
         ):
+
             uncertainty_missing = 0
 
         else:
+
             uncertainty_missing = 1
             uncertainty = np.inf
 
@@ -647,14 +653,10 @@ def select_ned_redshift(
 
     chosen[
         "selection"
-    ] = "Best NED redshift-table measurement"
+    ] = "Best NED measurement"
 
     return chosen
 
-
-# ============================================================
-# FINAL SN REDSHIFT QUERY
-# ============================================================
 
 def get_supernova_redshift(
     sn_name
@@ -675,6 +677,7 @@ def get_supernova_redshift(
     if selected is None:
 
         return {
+
             "redshift":
                 np.nan,
 
@@ -694,28 +697,21 @@ def get_supernova_redshift(
                 "",
 
             "selection":
-                "No NED redshift available",
-
-            "source":
-                "",
+                "No NED redshift",
 
             "measurement_count":
                 0
         }
 
-    selected["source"] = (
-        "NED Redshifts table"
-    )
-
-    selected["measurement_count"] = (
-        len(measurements)
-    )
+    selected[
+        "measurement_count"
+    ] = len(measurements)
 
     return selected
 
 
 # ============================================================
-# DISTANCE HELPERS
+# DISTANCE
 # ============================================================
 
 def get_mean_distance(
@@ -829,7 +825,7 @@ def get_hubble_distance(
 
 
 # ============================================================
-# DIAMETER HELPERS
+# DIAMETER
 # ============================================================
 
 def get_physical_diameter(
@@ -866,11 +862,14 @@ def get_physical_diameter(
         if (
             "kpc" in unit
             and (
-                "physicalmajoraxis" in name
+                "physicalmajoraxis"
+                in name
                 or (
-                    "physical" in description
+                    "physical"
+                    in description
                     and
-                    "majoraxis" in description
+                    "majoraxis"
+                    in description
                 )
             )
         ):
@@ -946,6 +945,7 @@ def get_coordinates(
 ):
 
     params = {
+
         "TARGET":
             str(object_name).strip(),
 
@@ -974,8 +974,10 @@ def get_coordinates(
 
     if (
         np.isfinite(ra)
-        and np.isfinite(dec)
+        and
+        np.isfinite(dec)
     ):
+
         return ra, dec
 
     ra_text = get_text_exact(
@@ -1040,6 +1042,7 @@ def query_supernova(
         and
         np.isfinite(sn_dec)
     ):
+
         problems.append(
             "NO_SN_COORDINATES"
         )
@@ -1049,6 +1052,7 @@ def query_supernova(
             "redshift"
         ]
     ):
+
         problems.append(
             "NO_SN_REDSHIFT"
         )
@@ -1061,6 +1065,7 @@ def query_supernova(
         sn_status = "OK"
 
     return {
+
         "sn_ra":
             sn_ra,
 
@@ -1077,29 +1082,9 @@ def query_supernova(
                 "uncertainty"
             ],
 
-        "sn_redshift_source":
-            redshift_result[
-                "source"
-            ],
-
-        "sn_redshift_selection":
-            redshift_result[
-                "selection"
-            ],
-
         "sn_redshift_technique":
             redshift_result[
                 "technique"
-            ],
-
-        "sn_redshift_method":
-            redshift_result[
-                "method"
-            ],
-
-        "sn_redshift_quality":
-            redshift_result[
-                "quality"
             ],
 
         "sn_redshift_reference":
@@ -1107,9 +1092,9 @@ def query_supernova(
                 "reference"
             ],
 
-        "ned_redshift_measurement_count":
+        "sn_redshift_selection":
             redshift_result[
-                "measurement_count"
+                "selection"
             ],
 
         "sn_status":
@@ -1145,6 +1130,7 @@ def query_host(
     if votable is None:
 
         return {
+
             "host_ra":
                 host_ra,
 
@@ -1253,6 +1239,7 @@ def query_host(
         and
         np.isfinite(host_dec)
     ):
+
         problems.append(
             "NO_HOST_COORDINATES"
         )
@@ -1260,6 +1247,7 @@ def query_host(
     if not np.isfinite(
         distance_mpc
     ):
+
         problems.append(
             "NO_DISTANCE"
         )
@@ -1267,6 +1255,7 @@ def query_host(
     if not np.isfinite(
         diameter_kpc
     ):
+
         problems.append(
             "NO_DIAMETER"
         )
@@ -1279,6 +1268,7 @@ def query_host(
         host_status = "OK"
 
     return {
+
         "host_ra":
             host_ra,
 
@@ -1315,7 +1305,7 @@ def query_host(
 
 
 # ============================================================
-# READ CSV
+# READ AND CLEAN INPUT CSV
 # ============================================================
 
 print("Reading CSV...")
@@ -1334,6 +1324,8 @@ if HOST_NAME_COL not in df.columns:
         "Missing column: host_name"
     )
 
+
+# Strip spaces
 df[SN_NAME_COL] = (
     df[SN_NAME_COL]
     .astype("string")
@@ -1347,6 +1339,40 @@ df[HOST_NAME_COL] = (
 )
 
 
+# Turn blank strings into missing values
+df[SN_NAME_COL] = (
+    df[SN_NAME_COL]
+    .replace("", pd.NA)
+)
+
+df[HOST_NAME_COL] = (
+    df[HOST_NAME_COL]
+    .replace("", pd.NA)
+)
+
+
+# IMPORTANT:
+# Remove blank rows.
+# Keep only rows that have BOTH SN and host.
+df = df.dropna(
+    subset=[
+        SN_NAME_COL,
+        HOST_NAME_COL
+    ]
+).copy()
+
+
+# Reset rows so there are no gaps
+df = df.reset_index(
+    drop=True
+)
+
+print(
+    "Valid SN-host rows:",
+    len(df)
+)
+
+
 # ============================================================
 # UNIQUE OBJECTS
 # ============================================================
@@ -1354,24 +1380,12 @@ df[HOST_NAME_COL] = (
 unique_sne = (
     df[SN_NAME_COL]
     .dropna()
-)
-
-unique_sne = (
-    unique_sne[
-        unique_sne != ""
-    ]
     .unique()
 )
 
 unique_hosts = (
     df[HOST_NAME_COL]
     .dropna()
-)
-
-unique_hosts = (
-    unique_hosts[
-        unique_hosts != ""
-    ]
     .unique()
 )
 
@@ -1383,7 +1397,9 @@ unique_hosts = (
 sn_cache = {}
 
 print()
-print("QUERYING SUPERNOVAE")
+print(
+    "QUERYING SUPERNOVAE"
+)
 
 for i, sn_name in enumerate(
     unique_sne,
@@ -1410,25 +1426,22 @@ for i, sn_name in enumerate(
 
     print(
         "RA:",
-        result["sn_ra"]
+        result[
+            "sn_ra"
+        ]
     )
 
     print(
         "Dec:",
-        result["sn_dec"]
+        result[
+            "sn_dec"
+        ]
     )
 
     print(
         "Redshift:",
         result[
             "sn_redshift"
-        ]
-    )
-
-    print(
-        "Selection:",
-        result[
-            "sn_redshift_selection"
         ]
     )
 
@@ -1447,13 +1460,6 @@ for i, sn_name in enumerate(
     )
 
     print(
-        "NED redshift measurements:",
-        result[
-            "ned_redshift_measurement_count"
-        ]
-    )
-
-    print(
         "Status:",
         result[
             "sn_status"
@@ -1466,13 +1472,15 @@ for i, sn_name in enumerate(
 
 
 # ============================================================
-# QUERY HOSTS
+# QUERY HOST GALAXIES
 # ============================================================
 
 host_cache = {}
 
 print()
-print("QUERYING HOST GALAXIES")
+print(
+    "QUERYING HOST GALAXIES"
+)
 
 for i, host_name in enumerate(
     unique_hosts,
@@ -1503,6 +1511,13 @@ for i, host_name in enumerate(
             "distance_mpc"
         ],
         "Mpc"
+    )
+
+    print(
+        "Distance method:",
+        result[
+            "distance_method"
+        ]
     )
 
     print(
@@ -1544,43 +1559,85 @@ for _, row in df.iterrows():
     sn_result = sn_cache.get(
         sn_name,
         {
-            "sn_ra": np.nan,
-            "sn_dec": np.nan,
-            "sn_redshift": np.nan,
-            "sn_redshift_unc": np.nan,
-            "sn_redshift_source": "",
-            "sn_redshift_selection": "",
-            "sn_redshift_technique": "",
-            "sn_redshift_method": "",
-            "sn_redshift_quality": "",
-            "sn_redshift_reference": "",
-            "ned_redshift_measurement_count": 0,
-            "sn_status": "SN_NOT_FOUND"
+            "sn_ra":
+                np.nan,
+
+            "sn_dec":
+                np.nan,
+
+            "sn_redshift":
+                np.nan,
+
+            "sn_redshift_unc":
+                np.nan,
+
+            "sn_redshift_technique":
+                "",
+
+            "sn_redshift_reference":
+                "",
+
+            "sn_redshift_selection":
+                "",
+
+            "sn_status":
+                "SN_NOT_FOUND"
         }
     )
 
     host_result = host_cache.get(
         host_name,
         {
-            "host_ra": np.nan,
-            "host_dec": np.nan,
-            "mean_distance_mpc": np.nan,
-            "hubble_distance_mpc": np.nan,
-            "distance_mpc": np.nan,
-            "distance_method": "",
-            "diameter_kpc": np.nan,
-            "diameter_arcsec": np.nan,
-            "diameter_bandpass": "",
-            "diameter_reference": "",
-            "host_status": "HOST_NOT_FOUND"
+            "host_ra":
+                np.nan,
+
+            "host_dec":
+                np.nan,
+
+            "mean_distance_mpc":
+                np.nan,
+
+            "hubble_distance_mpc":
+                np.nan,
+
+            "distance_mpc":
+                np.nan,
+
+            "distance_method":
+                "",
+
+            "diameter_kpc":
+                np.nan,
+
+            "diameter_arcsec":
+                np.nan,
+
+            "diameter_bandpass":
+                "",
+
+            "diameter_reference":
+                "",
+
+            "host_status":
+                "HOST_NOT_FOUND"
         }
     )
 
-    sn_ra = sn_result["sn_ra"]
-    sn_dec = sn_result["sn_dec"]
+    sn_ra = sn_result[
+        "sn_ra"
+    ]
 
-    host_ra = host_result["host_ra"]
-    host_dec = host_result["host_dec"]
+    sn_dec = sn_result[
+        "sn_dec"
+    ]
+
+    host_ra = host_result[
+        "host_ra"
+    ]
+
+    host_dec = host_result[
+        "host_dec"
+    ]
 
     distance_mpc = host_result[
         "distance_mpc"
@@ -1589,6 +1646,11 @@ for _, row in df.iterrows():
     diameter_kpc = host_result[
         "diameter_kpc"
     ]
+
+
+    # ========================================================
+    # CALCULATE SN-HOST OFFSET
+    # ========================================================
 
     offset_arcsec = np.nan
     offset_kpc = np.nan
@@ -1664,6 +1726,11 @@ for _, row in df.iterrows():
             "MISSING_COORDINATES_FOR_OFFSET"
         )
 
+
+    # ========================================================
+    # GALAXY RADIUS
+    # ========================================================
+
     if (
         np.isfinite(diameter_kpc)
         and
@@ -1677,6 +1744,11 @@ for _, row in df.iterrows():
     else:
 
         galaxy_radius_kpc = np.nan
+
+
+    # ========================================================
+    # NORMALIZED OFFSET
+    # ========================================================
 
     if (
         np.isfinite(offset_kpc)
@@ -1700,6 +1772,11 @@ for _, row in df.iterrows():
             np.nan
         )
 
+
+    # ========================================================
+    # STATUS
+    # ========================================================
+
     if (
         sn_result["sn_status"]
         != "OK"
@@ -1712,7 +1789,9 @@ for _, row in df.iterrows():
         )
 
     if (
-        host_result["host_status"]
+        host_result[
+            "host_status"
+        ]
         != "OK"
     ):
 
@@ -1734,15 +1813,24 @@ for _, row in df.iterrows():
 
         final_status = "OK"
 
+
+    # ========================================================
+    # CLEAN, ORGANIZED OUTPUT ORDER
+    # ========================================================
+
     output_rows.append({
+
+        # ------------------------
+        # SUPERNOVA
+        # ------------------------
 
         "sn_name":
             sn_name,
 
-        "sn_ra_ned":
+        "sn_ra_deg":
             sn_ra,
 
-        "sn_dec_ned":
+        "sn_dec_deg":
             sn_dec,
 
         "sn_redshift":
@@ -1755,29 +1843,9 @@ for _, row in df.iterrows():
                 "sn_redshift_unc"
             ],
 
-        "sn_redshift_source":
-            sn_result[
-                "sn_redshift_source"
-            ],
-
-        "sn_redshift_selection":
-            sn_result[
-                "sn_redshift_selection"
-            ],
-
         "sn_redshift_technique":
             sn_result[
                 "sn_redshift_technique"
-            ],
-
-        "sn_redshift_method":
-            sn_result[
-                "sn_redshift_method"
-            ],
-
-        "sn_redshift_quality":
-            sn_result[
-                "sn_redshift_quality"
             ],
 
         "sn_redshift_reference":
@@ -1785,19 +1853,62 @@ for _, row in df.iterrows():
                 "sn_redshift_reference"
             ],
 
-        "ned_redshift_measurement_count":
-            sn_result[
-                "ned_redshift_measurement_count"
-            ],
+
+        # ------------------------
+        # HOST
+        # ------------------------
 
         "host_name":
             host_name,
 
-        "host_ra_ned":
+        "host_ra_deg":
             host_ra,
 
-        "host_dec_ned":
+        "host_dec_deg":
             host_dec,
+
+
+        # ------------------------
+        # HOST DISTANCE
+        # ------------------------
+
+        "distance_mpc":
+            distance_mpc,
+
+        "distance_method":
+            host_result[
+                "distance_method"
+            ],
+
+
+        # ------------------------
+        # HOST SIZE
+        # ------------------------
+
+        "diameter_kpc":
+            diameter_kpc,
+
+        "galaxy_radius_kpc":
+            galaxy_radius_kpc,
+
+
+        # ------------------------
+        # SN-HOST OFFSET
+        # ------------------------
+
+        "offset_arcsec":
+            offset_arcsec,
+
+        "offset_kpc":
+            offset_kpc,
+
+        "offset_over_galaxy_radius":
+            offset_over_galaxy_radius,
+
+
+        # ------------------------
+        # EXTRA NED INFORMATION
+        # ------------------------
 
         "mean_distance_mpc":
             host_result[
@@ -1808,20 +1919,6 @@ for _, row in df.iterrows():
             host_result[
                 "hubble_distance_mpc"
             ],
-
-        "distance_mpc":
-            distance_mpc,
-
-        "distance_method":
-            host_result[
-                "distance_method"
-            ],
-
-        "diameter_kpc":
-            diameter_kpc,
-
-        "galaxy_radius_kpc":
-            galaxy_radius_kpc,
 
         "diameter_arcsec":
             host_result[
@@ -1838,14 +1935,10 @@ for _, row in df.iterrows():
                 "diameter_reference"
             ],
 
-        "offset_arcsec":
-            offset_arcsec,
 
-        "offset_kpc":
-            offset_kpc,
-
-        "offset_over_galaxy_radius":
-            offset_over_galaxy_radius,
+        # ------------------------
+        # STATUS
+        # ------------------------
 
         "sn_status":
             sn_result[
@@ -1863,12 +1956,95 @@ for _, row in df.iterrows():
 
 
 # ============================================================
-# SAVE
+# CREATE CLEAN OUTPUT TABLE
 # ============================================================
 
 output = pd.DataFrame(
     output_rows
 )
+
+
+# Remove any fully empty rows
+output = output.dropna(
+    how="all"
+)
+
+
+# Reset row numbers
+output = output.reset_index(
+    drop=True
+)
+
+
+# ============================================================
+# ROUND VALUES FOR CLEAN EXCEL DISPLAY
+# ============================================================
+
+rounding = {
+
+    "sn_ra_deg":
+        6,
+
+    "sn_dec_deg":
+        6,
+
+    "sn_redshift":
+        6,
+
+    "sn_redshift_unc":
+        8,
+
+    "host_ra_deg":
+        6,
+
+    "host_dec_deg":
+        6,
+
+    "distance_mpc":
+        4,
+
+    "mean_distance_mpc":
+        4,
+
+    "hubble_distance_mpc":
+        4,
+
+    "diameter_kpc":
+        4,
+
+    "galaxy_radius_kpc":
+        4,
+
+    "diameter_arcsec":
+        3,
+
+    "offset_arcsec":
+        3,
+
+    "offset_kpc":
+        4,
+
+    "offset_over_galaxy_radius":
+        4
+}
+
+
+for column, decimals in rounding.items():
+
+    if column in output.columns:
+
+        output[column] = (
+            pd.to_numeric(
+                output[column],
+                errors="coerce"
+            )
+            .round(decimals)
+        )
+
+
+# ============================================================
+# SAVE
+# ============================================================
 
 output.to_csv(
     OUTPUT_CSV,
@@ -1884,8 +2060,15 @@ print()
 print("FINISHED")
 
 print(
-    "Total rows:",
+    "Total SN-host rows:",
     len(output)
+)
+
+print(
+    "SN coordinates found:",
+    output[
+        "sn_ra_deg"
+    ].notna().sum()
 )
 
 print(
@@ -1896,9 +2079,9 @@ print(
 )
 
 print(
-    "SN coordinates found:",
+    "Host coordinates found:",
     output[
-        "sn_ra_ned"
+        "host_ra_deg"
     ].notna().sum()
 )
 
