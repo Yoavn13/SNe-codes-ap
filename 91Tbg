@@ -842,11 +842,27 @@ for _, row in df.iterrows():
 
 output = pd.DataFrame(output_rows)
 
+# ============================================================
+# GALAXY RADIUS AND NORMALIZED OFFSET
+# ============================================================
+
+output["galaxy_radius_kpc"] = (
+    output["diameter_kpc"] / 2.0
+)
+
+output["offset_over_galaxy_radius"] = (
+    output["offset_kpc"]
+    / output["galaxy_radius_kpc"]
+)
+
+# ============================================================
+# SAVE
+# ============================================================
+
 output.to_csv(
     OUTPUT_CSV,
     index=False
 )
-
 
 # ============================================================
 # SUMMARY
