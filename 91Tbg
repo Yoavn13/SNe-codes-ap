@@ -8,29 +8,26 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.io.votable import parse
 
-
-# ============================================================
-# FILES
-# ============================================================
-
 INPUT_CSV = r"C:\Users\amirn\Downloads\supernovae.csv"
 OUTPUT_CSV = r"C:\Users\amirn\Downloads\supernovae_with_ned_data.csv"
-
-
-# ============================================================
-# CSV COLUMNS
-# ============================================================
 
 SN_NAME_COL = "sn_name"
 HOST_NAME_COL = "host_name"
 
+NED_CONE_URL = (
+    "https://ned.ipac.caltech.edu/"
+    "NED::API/ConeSearchByTarget"
+)
 
-# ============================================================
-# NED API
-# ============================================================
+NED_OVERVIEW_URL = (
+    "https://ned.ipac.caltech.edu/"
+    "NED::API/OverviewOfObject"
+)
 
-NED_CONE_URL = "https://ned.ipac.caltech.edu/NED::API/ConeSearchByTarget"
-NED_OVERVIEW_URL = "https://ned.ipac.caltech.edu/NED::API/OverviewOfObject"
+NED_REDSHIFTS_URL = (
+    "https://ned.ipac.caltech.edu/"
+    "NED::API/RedshiftsOfObject"
+)
 
 MAX_RETRIES = 3
 QUERY_DELAY = 0.5
@@ -41,6 +38,7 @@ QUERY_DELAY = 0.5
 # ============================================================
 
 def clean_value(value):
+
     if value is None:
         return np.nan
 
@@ -51,7 +49,10 @@ def clean_value(value):
         pass
 
     if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace").strip()
+        return value.decode(
+            "utf-8",
+            errors="replace"
+        ).strip()
 
     try:
         return value.item()
@@ -60,6 +61,7 @@ def clean_value(value):
 
 
 def normalize(text):
+
     return "".join(
         ch.lower()
         for ch in str(text)
@@ -67,9 +69,70 @@ def normalize(text):
     )
 
 
-def request_votable(url, params, object_name):
-    for attempt in range(1, MAX_RETRIES + 1):
+def numeric_value(value):
+
+    value = clean_value(value)
+
+    try:
+        number = float(value)
+
+        if np.isfinite(number):
+            return number
+
+    except Exception:
+        pass
+
+    return np.nan
+
+
+def text_value(value):
+
+    value = clean_value(value)
+
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+
+    return str(value).strip()
+
+
+def bool_value(value):
+
+    value = clean_value(value)
+
+    if isinstance(value, bool):
+        return value
+
+    text = str(value).strip().lower()
+
+    return text in {
+        "true",
+        "1",
+        "yes",
+        "y",
+        "t"
+    }
+
+
+# ============================================================
+# REQUEST VOTABLE
+# ============================================================
+
+def request_votable(
+    url,
+    params,
+    object_name
+):
+
+    for attempt in range(
+        1,
+        MAX_RETRIES + 1
+    ):
+
         try:
+
             response = requests.get(
                 url,
                 params=params,
@@ -79,13 +142,27 @@ def request_votable(url, params, object_name):
             response.raise_for_status()
 
             return parse(
-                io.BytesIO(response.content)
+                io.BytesIO(
+                    response.content
+                )
             )
 
         except Exception as error:
-            print("NED query failed:", object_name)
-            print("Attempt:", attempt)
-            print("Error:", error)
+
+            print(
+                "NED query failed:",
+                object_name
+            )
+
+            print(
+                "Attempt:",
+                attempt
+            )
+
+            print(
+                "Error:",
+                error
+            )
 
             if attempt < MAX_RETRIES:
                 time.sleep(2)
@@ -94,17 +171,10 @@ def request_votable(url, params, object_name):
 
 
 # ============================================================
-# SEARCH VOTABLE FIELDS
+# VOTABLE FIELD RECORDS
 # ============================================================
 
 def all_field_records(votable):
-    """
-    Return every field together with the corresponding
-    Astropy table column.
-
-    This does not assume that table.colnames are the same
-    as the human-readable NED labels.
-    """
 
     records = []
 
@@ -112,83 +182,95 @@ def all_field_records(votable):
         return records
 
     for resource in votable.resources:
+
         for table_element in resource.tables:
 
             try:
                 table = table_element.to_table()
+
             except Exception:
                 continue
 
             if table is None or len(table) == 0:
                 continue
 
-            fields = table_element.fields
-
-            for index, field in enumerate(fields):
+            for index, field in enumerate(
+                table_element.fields
+            ):
 
                 if index >= len(table.colnames):
                     continue
 
-                name = field.name or ""
-                field_id = field.ID or ""
-                description = field.description or ""
-                unit = str(field.unit or "")
-
                 records.append({
-                    "table": table,
-                    "column": table.colnames[index],
-                    "name": str(name),
-                    "id": str(field_id),
-                    "description": str(description),
-                    "unit": unit
+                    "table":
+                        table,
+
+                    "column":
+                        table.colnames[index],
+
+                    "name":
+                        str(field.name or ""),
+
+                    "id":
+                        str(field.ID or ""),
+
+                    "description":
+                        str(field.description or ""),
+
+                    "unit":
+                        str(field.unit or "")
                 })
 
     return records
 
 
 def first_number_from_record(record):
+
     table = record["table"]
     column = record["column"]
 
     for value in table[column]:
-        value = clean_value(value)
 
-        try:
-            number = float(value)
+        number = numeric_value(value)
 
-            if np.isfinite(number):
-                return number
-
-        except Exception:
-            continue
+        if np.isfinite(number):
+            return number
 
     return np.nan
 
 
 def first_text_from_record(record):
+
     table = record["table"]
     column = record["column"]
 
     for value in table[column]:
-        value = clean_value(value)
 
-        if pd.notna(value):
-            text = str(value).strip()
+        text = text_value(value)
 
-            if text:
-                return text
+        if text:
+            return text
 
     return ""
 
 
 # ============================================================
-# EXACT / SEMANTIC FIELD MATCHING
+# EXACT FIELD LOOKUPS
 # ============================================================
 
-def get_number_exact(votable, labels):
-    targets = [normalize(x) for x in labels]
+def get_number_exact(
+    votable,
+    labels
+):
 
-    for record in all_field_records(votable):
+    targets = [
+        normalize(label)
+        for label in labels
+    ]
+
+    for record in all_field_records(
+        votable
+    ):
 
         metadata = [
             normalize(record["name"]),
@@ -196,8 +278,14 @@ def get_number_exact(votable, labels):
         ]
 
         for target in targets:
+
             if target in metadata:
-                value = first_number_from_record(record)
+
+                value = (
+                    first_number_from_record(
+                        record
+                    )
+                )
 
                 if np.isfinite(value):
                     return value
@@ -205,10 +293,19 @@ def get_number_exact(votable, labels):
     return np.nan
 
 
-def get_text_exact(votable, labels):
-    targets = [normalize(x) for x in labels]
+def get_text_exact(
+    votable,
+    labels
+):
 
-    for record in all_field_records(votable):
+    targets = [
+        normalize(label)
+        for label in labels
+    ]
+
+    for record in all_field_records(
+        votable
+    ):
 
         metadata = [
             normalize(record["name"]),
@@ -216,8 +313,14 @@ def get_text_exact(votable, labels):
         ]
 
         for target in targets:
+
             if target in metadata:
-                value = first_text_from_record(record)
+
+                value = (
+                    first_text_from_record(
+                        record
+                    )
+                )
 
                 if value:
                     return value
@@ -225,8 +328,400 @@ def get_text_exact(votable, labels):
     return ""
 
 
-def get_mean_distance(votable):
-    # First try NED's official field name.
+# ============================================================
+# FIND COLUMN IN ONE TABLE
+# ============================================================
+
+def find_table_column(
+    table_element,
+    table,
+    labels
+):
+
+    targets = [
+        normalize(label)
+        for label in labels
+    ]
+
+    for index, field in enumerate(
+        table_element.fields
+    ):
+
+        if index >= len(table.colnames):
+            continue
+
+        names = [
+            normalize(field.name or ""),
+            normalize(field.ID or "")
+        ]
+
+        for target in targets:
+
+            if target in names:
+                return table.colnames[index]
+
+    return None
+
+
+# ============================================================
+# NED REDSHIFT TABLE
+# ============================================================
+
+def get_ned_redshift_measurements(
+    sn_name
+):
+
+    params = {
+        "TARGET":
+            str(sn_name).strip()
+    }
+
+    votable = request_votable(
+        NED_REDSHIFTS_URL,
+        params,
+        sn_name
+    )
+
+    measurements = []
+
+    if votable is None:
+        return measurements
+
+    for resource in votable.resources:
+
+        for table_element in resource.tables:
+
+            try:
+                table = table_element.to_table()
+
+            except Exception:
+                continue
+
+            if table is None or len(table) == 0:
+                continue
+
+            z_col = find_table_column(
+                table_element,
+                table,
+                [
+                    "Redshift (z)",
+                    "Redshift"
+                ]
+            )
+
+            unc_col = find_table_column(
+                table_element,
+                table,
+                [
+                    "Redshift(z) Unc",
+                    "Redshift Unc"
+                ]
+            )
+
+            technique_col = find_table_column(
+                table_element,
+                table,
+                ["Technique"]
+            )
+
+            method_col = find_table_column(
+                table_element,
+                table,
+                ["Method"]
+            )
+
+            quality_col = find_table_column(
+                table_element,
+                table,
+                ["Quality Flag"]
+            )
+
+            reference_col = find_table_column(
+                table_element,
+                table,
+                [
+                    "Reference",
+                    "Refcode"
+                ]
+            )
+
+            fiducial_col = find_table_column(
+                table_element,
+                table,
+                ["Fiducial"]
+            )
+
+            if z_col is None:
+                continue
+
+            for row in table:
+
+                redshift = numeric_value(
+                    row[z_col]
+                )
+
+                if not np.isfinite(redshift):
+                    continue
+
+                if unc_col is not None:
+                    uncertainty = numeric_value(
+                        row[unc_col]
+                    )
+                else:
+                    uncertainty = np.nan
+
+                if technique_col is not None:
+                    technique = text_value(
+                        row[technique_col]
+                    )
+                else:
+                    technique = ""
+
+                if method_col is not None:
+                    method = text_value(
+                        row[method_col]
+                    )
+                else:
+                    method = ""
+
+                if quality_col is not None:
+                    quality = text_value(
+                        row[quality_col]
+                    )
+                else:
+                    quality = ""
+
+                if reference_col is not None:
+                    reference = text_value(
+                        row[reference_col]
+                    )
+                else:
+                    reference = ""
+
+                if fiducial_col is not None:
+                    fiducial = bool_value(
+                        row[fiducial_col]
+                    )
+                else:
+                    fiducial = False
+
+                measurements.append({
+
+                    "redshift":
+                        redshift,
+
+                    "uncertainty":
+                        uncertainty,
+
+                    "technique":
+                        technique,
+
+                    "method":
+                        method,
+
+                    "quality":
+                        quality,
+
+                    "reference":
+                        reference,
+
+                    "fiducial":
+                        fiducial
+                })
+
+    return measurements
+
+
+# ============================================================
+# SELECT BEST NED REDSHIFT
+# ============================================================
+
+def select_ned_redshift(
+    measurements
+):
+
+    if not measurements:
+        return None
+
+    # --------------------------------------------------------
+    # First choice: NED Fiducial row
+    # --------------------------------------------------------
+
+    fiducial_rows = [
+        measurement
+        for measurement in measurements
+        if measurement["fiducial"]
+    ]
+
+    if fiducial_rows:
+
+        chosen = fiducial_rows[0].copy()
+
+        chosen[
+            "selection"
+        ] = "NED fiducial redshift"
+
+        return chosen
+
+    # --------------------------------------------------------
+    # Otherwise rank measurements
+    # --------------------------------------------------------
+
+    def technique_rank(text):
+
+        text = str(text).strip().upper()
+
+        if "SPEC" in text:
+            return 0
+
+        if text == "S":
+            return 0
+
+        if "PHOT" in text:
+            return 1
+
+        if "MULT" in text:
+            return 2
+
+        if "MOD" in text:
+            return 3
+
+        return 4
+
+    def measurement_rank(
+        measurement
+    ):
+
+        quality = (
+            measurement[
+                "quality"
+            ]
+            .strip()
+            .upper()
+        )
+
+        # Put questionable rows later
+        bad_quality = (
+            1
+            if (
+                "?" in quality
+                or "BAD" in quality
+            )
+            else 0
+        )
+
+        technique = (
+            technique_rank(
+                measurement[
+                    "technique"
+                ]
+            )
+        )
+
+        uncertainty = (
+            measurement[
+                "uncertainty"
+            ]
+        )
+
+        if np.isfinite(
+            uncertainty
+        ):
+            uncertainty_missing = 0
+
+        else:
+            uncertainty_missing = 1
+            uncertainty = np.inf
+
+        return (
+            bad_quality,
+            technique,
+            uncertainty_missing,
+            uncertainty
+        )
+
+    chosen = sorted(
+        measurements,
+        key=measurement_rank
+    )[0].copy()
+
+    chosen[
+        "selection"
+    ] = "Best NED redshift-table measurement"
+
+    return chosen
+
+
+# ============================================================
+# FINAL SN REDSHIFT QUERY
+# ============================================================
+
+def get_supernova_redshift(
+    sn_name
+):
+
+    measurements = (
+        get_ned_redshift_measurements(
+            sn_name
+        )
+    )
+
+    selected = (
+        select_ned_redshift(
+            measurements
+        )
+    )
+
+    if selected is None:
+
+        return {
+            "redshift":
+                np.nan,
+
+            "uncertainty":
+                np.nan,
+
+            "technique":
+                "",
+
+            "method":
+                "",
+
+            "quality":
+                "",
+
+            "reference":
+                "",
+
+            "selection":
+                "No NED redshift available",
+
+            "source":
+                "",
+
+            "measurement_count":
+                0
+        }
+
+    selected["source"] = (
+        "NED Redshifts table"
+    )
+
+    selected["measurement_count"] = (
+        len(measurements)
+    )
+
+    return selected
+
+
+# ============================================================
+# DISTANCE HELPERS
+# ============================================================
+
+def get_mean_distance(
+    votable
+):
+
     value = get_number_exact(
         votable,
         ["Mean Distance"]
@@ -235,27 +730,39 @@ def get_mean_distance(votable):
     if np.isfinite(value):
         return value
 
-    # Semantic fallback based on NED description and Mpc unit.
-    for record in all_field_records(votable):
+    for record in all_field_records(
+        votable
+    ):
 
-        description = normalize(record["description"])
-        name = normalize(record["name"])
-        unit = normalize(record["unit"])
+        name = normalize(
+            record["name"]
+        )
 
-        looks_like_mean_distance = (
+        description = normalize(
+            record["description"]
+        )
+
+        unit = normalize(
+            record["unit"]
+        )
+
+        if (
             "mpc" in unit
             and (
                 "meandistance" in name
-                or "meanofthedistance" in description
                 or (
                     "mean" in description
-                    and "distance" in description
+                    and
+                    "distance" in description
                 )
             )
-        )
+        ):
 
-        if looks_like_mean_distance:
-            value = first_number_from_record(record)
+            value = (
+                first_number_from_record(
+                    record
+                )
+            )
 
             if np.isfinite(value):
                 return value
@@ -263,8 +770,10 @@ def get_mean_distance(votable):
     return np.nan
 
 
-def get_hubble_distance(votable):
-    # Official NED field name.
+def get_hubble_distance(
+    votable
+):
+
     value = get_number_exact(
         votable,
         [
@@ -276,27 +785,42 @@ def get_hubble_distance(votable):
     if np.isfinite(value):
         return value
 
-    # Semantic fallback.
-    for record in all_field_records(votable):
+    for record in all_field_records(
+        votable
+    ):
 
-        description = normalize(record["description"])
-        name = normalize(record["name"])
-        unit = normalize(record["unit"])
+        name = normalize(
+            record["name"]
+        )
 
-        looks_like_hubble_distance = (
+        description = normalize(
+            record["description"]
+        )
+
+        unit = normalize(
+            record["unit"]
+        )
+
+        if (
             "mpc" in unit
             and (
                 "d3kcmb" in name
-                or "hubbleflowdistance" in description
+                or
+                "hubbleflowdistance"
+                in description
                 or (
                     "distance" in description
-                    and "cosmicmicrowavebackground" in description
+                    and
+                    "cmb" in description
                 )
             )
-        )
+        ):
 
-        if looks_like_hubble_distance:
-            value = first_number_from_record(record)
+            value = (
+                first_number_from_record(
+                    record
+                )
+            )
 
             if np.isfinite(value):
                 return value
@@ -304,8 +828,14 @@ def get_hubble_distance(votable):
     return np.nan
 
 
-def get_physical_diameter(votable):
-    # Official NED field name.
+# ============================================================
+# DIAMETER HELPERS
+# ============================================================
+
+def get_physical_diameter(
+    votable
+):
+
     value = get_number_exact(
         votable,
         [
@@ -317,27 +847,39 @@ def get_physical_diameter(votable):
     if np.isfinite(value):
         return value
 
-    # Semantic fallback: physical major axis, kpc.
-    for record in all_field_records(votable):
+    for record in all_field_records(
+        votable
+    ):
 
-        name = normalize(record["name"])
-        description = normalize(record["description"])
-        unit = normalize(record["unit"])
+        name = normalize(
+            record["name"]
+        )
 
-        looks_like_physical_diameter = (
+        description = normalize(
+            record["description"]
+        )
+
+        unit = normalize(
+            record["unit"]
+        )
+
+        if (
             "kpc" in unit
             and (
                 "physicalmajoraxis" in name
-                or "physicalmajoraxis" in description
                 or (
                     "physical" in description
-                    and "majoraxis" in description
+                    and
+                    "majoraxis" in description
                 )
             )
-        )
+        ):
 
-        if looks_like_physical_diameter:
-            value = first_number_from_record(record)
+            value = (
+                first_number_from_record(
+                    record
+                )
+            )
 
             if np.isfinite(value):
                 return value
@@ -345,7 +887,10 @@ def get_physical_diameter(votable):
     return np.nan
 
 
-def get_angular_diameter(votable):
+def get_angular_diameter(
+    votable
+):
+
     value = get_number_exact(
         votable,
         ["Major Axis"]
@@ -354,22 +899,37 @@ def get_angular_diameter(votable):
     if np.isfinite(value):
         return value
 
-    # Only accept arcsec major axis here,
-    # so we do not confuse it with Physical Major Axis.
-    for record in all_field_records(votable):
+    for record in all_field_records(
+        votable
+    ):
 
-        name = normalize(record["name"])
-        description = normalize(record["description"])
-        unit = normalize(record["unit"])
+        name = normalize(
+            record["name"]
+        )
+
+        description = normalize(
+            record["description"]
+        )
+
+        unit = normalize(
+            record["unit"]
+        )
 
         if (
             "arcsec" in unit
             and (
                 name == "majoraxis"
-                or "majoraxisdiameter" in description
+                or
+                "majoraxisdiameter"
+                in description
             )
         ):
-            value = first_number_from_record(record)
+
+            value = (
+                first_number_from_record(
+                    record
+                )
+            )
 
             if np.isfinite(value):
                 return value
@@ -381,15 +941,16 @@ def get_angular_diameter(votable):
 # COORDINATES
 # ============================================================
 
-def get_coordinates(object_name):
-    """
-    Uses ConeSearchByTarget with RADIUS=0.
-    NED documents RA and Dec directly in degrees here.
-    """
+def get_coordinates(
+    object_name
+):
 
     params = {
-        "TARGET": str(object_name).strip(),
-        "RADIUS": 0
+        "TARGET":
+            str(object_name).strip(),
+
+        "RADIUS":
+            0
     }
 
     votable = request_votable(
@@ -411,10 +972,12 @@ def get_coordinates(object_name):
         ["Dec"]
     )
 
-    if np.isfinite(ra) and np.isfinite(dec):
+    if (
+        np.isfinite(ra)
+        and np.isfinite(dec)
+    ):
         return ra, dec
 
-    # Fallback to sexagesimal coordinates.
     ra_text = get_text_exact(
         votable,
         ["RA-s"]
@@ -426,15 +989,23 @@ def get_coordinates(object_name):
     )
 
     if ra_text and dec_text:
+
         try:
+
             coord = SkyCoord(
                 ra_text,
                 dec_text,
-                unit=(u.hourangle, u.deg),
+                unit=(
+                    u.hourangle,
+                    u.deg
+                ),
                 frame="icrs"
             )
 
-            return coord.ra.deg, coord.dec.deg
+            return (
+                coord.ra.deg,
+                coord.dec.deg
+            )
 
         except Exception:
             pass
@@ -443,42 +1014,126 @@ def get_coordinates(object_name):
 
 
 # ============================================================
-# SUPERNOVA
+# QUERY SUPERNOVA
 # ============================================================
 
-def query_supernova(sn_name):
-    sn_ra, sn_dec = get_coordinates(sn_name)
+def query_supernova(
+    sn_name
+):
 
-    if np.isfinite(sn_ra) and np.isfinite(sn_dec):
-        status = "OK"
+    sn_ra, sn_dec = (
+        get_coordinates(
+            sn_name
+        )
+    )
+
+    redshift_result = (
+        get_supernova_redshift(
+            sn_name
+        )
+    )
+
+    problems = []
+
+    if not (
+        np.isfinite(sn_ra)
+        and
+        np.isfinite(sn_dec)
+    ):
+        problems.append(
+            "NO_SN_COORDINATES"
+        )
+
+    if not np.isfinite(
+        redshift_result[
+            "redshift"
+        ]
+    ):
+        problems.append(
+            "NO_SN_REDSHIFT"
+        )
+
+    if problems:
+        sn_status = ";".join(
+            problems
+        )
     else:
-        status = "NO_SN_COORDINATES"
+        sn_status = "OK"
 
     return {
-        "sn_ra": sn_ra,
-        "sn_dec": sn_dec,
-        "sn_status": status
+        "sn_ra":
+            sn_ra,
+
+        "sn_dec":
+            sn_dec,
+
+        "sn_redshift":
+            redshift_result[
+                "redshift"
+            ],
+
+        "sn_redshift_unc":
+            redshift_result[
+                "uncertainty"
+            ],
+
+        "sn_redshift_source":
+            redshift_result[
+                "source"
+            ],
+
+        "sn_redshift_selection":
+            redshift_result[
+                "selection"
+            ],
+
+        "sn_redshift_technique":
+            redshift_result[
+                "technique"
+            ],
+
+        "sn_redshift_method":
+            redshift_result[
+                "method"
+            ],
+
+        "sn_redshift_quality":
+            redshift_result[
+                "quality"
+            ],
+
+        "sn_redshift_reference":
+            redshift_result[
+                "reference"
+            ],
+
+        "ned_redshift_measurement_count":
+            redshift_result[
+                "measurement_count"
+            ],
+
+        "sn_status":
+            sn_status
     }
 
 
 # ============================================================
-# HOST GALAXY
+# QUERY HOST
 # ============================================================
 
-def query_host(host_name):
+def query_host(
+    host_name
+):
 
-    # --------------------------------------------------------
-    # Coordinates
-    # --------------------------------------------------------
-
-    host_ra, host_dec = get_coordinates(host_name)
-
-    # --------------------------------------------------------
-    # NED Overview
-    # --------------------------------------------------------
+    host_ra, host_dec = (
+        get_coordinates(
+            host_name
+        )
+    )
 
     params = {
-        "TARGET": str(host_name).strip()
+        "TARGET":
+            str(host_name).strip()
     }
 
     votable = request_votable(
@@ -488,86 +1143,174 @@ def query_host(host_name):
     )
 
     if votable is None:
+
         return {
-            "host_ra": host_ra,
-            "host_dec": host_dec,
-            "mean_distance_mpc": np.nan,
-            "hubble_distance_mpc": np.nan,
-            "distance_mpc": np.nan,
-            "distance_method": "NED overview failed",
-            "diameter_kpc": np.nan,
-            "diameter_arcsec": np.nan,
-            "diameter_bandpass": "",
-            "diameter_reference": "",
-            "host_status": "OVERVIEW_QUERY_FAILED"
+            "host_ra":
+                host_ra,
+
+            "host_dec":
+                host_dec,
+
+            "mean_distance_mpc":
+                np.nan,
+
+            "hubble_distance_mpc":
+                np.nan,
+
+            "distance_mpc":
+                np.nan,
+
+            "distance_method":
+                "NED overview failed",
+
+            "diameter_kpc":
+                np.nan,
+
+            "diameter_arcsec":
+                np.nan,
+
+            "diameter_bandpass":
+                "",
+
+            "diameter_reference":
+                "",
+
+            "host_status":
+                "OVERVIEW_QUERY_FAILED"
         }
 
-    # --------------------------------------------------------
-    # Distances
-    # --------------------------------------------------------
-
-    mean_distance = get_mean_distance(votable)
-
-    hubble_distance = get_hubble_distance(votable)
-
-    if np.isfinite(mean_distance):
-        distance_mpc = mean_distance
-        distance_method = "Mean Distance"
-
-    elif np.isfinite(hubble_distance):
-        distance_mpc = hubble_distance
-        distance_method = "Hubble Distance (CMB)"
-
-    else:
-        distance_mpc = np.nan
-        distance_method = "No distance available"
-
-    # --------------------------------------------------------
-    # Diameter directly from NED
-    # --------------------------------------------------------
-
-    diameter_kpc = get_physical_diameter(votable)
-
-    diameter_arcsec = get_angular_diameter(votable)
-
-    diameter_bandpass = get_text_exact(
-        votable,
-        ["Bandpass"]
+    mean_distance = (
+        get_mean_distance(
+            votable
+        )
     )
 
-    diameter_reference = get_text_exact(
-        votable,
-        ["Diameter Refcode"]
+    hubble_distance = (
+        get_hubble_distance(
+            votable
+        )
+    )
+
+    if np.isfinite(
+        mean_distance
+    ):
+
+        distance_mpc = mean_distance
+        distance_method = (
+            "Mean Distance"
+        )
+
+    elif np.isfinite(
+        hubble_distance
+    ):
+
+        distance_mpc = (
+            hubble_distance
+        )
+
+        distance_method = (
+            "Hubble Distance (CMB)"
+        )
+
+    else:
+
+        distance_mpc = np.nan
+
+        distance_method = (
+            "No distance available"
+        )
+
+    diameter_kpc = (
+        get_physical_diameter(
+            votable
+        )
+    )
+
+    diameter_arcsec = (
+        get_angular_diameter(
+            votable
+        )
+    )
+
+    diameter_bandpass = (
+        get_text_exact(
+            votable,
+            ["Bandpass"]
+        )
+    )
+
+    diameter_reference = (
+        get_text_exact(
+            votable,
+            ["Diameter Refcode"]
+        )
     )
 
     problems = []
 
-    if not np.isfinite(host_ra) or not np.isfinite(host_dec):
-        problems.append("NO_HOST_COORDINATES")
+    if not (
+        np.isfinite(host_ra)
+        and
+        np.isfinite(host_dec)
+    ):
+        problems.append(
+            "NO_HOST_COORDINATES"
+        )
 
-    if not np.isfinite(distance_mpc):
-        problems.append("NO_DISTANCE")
+    if not np.isfinite(
+        distance_mpc
+    ):
+        problems.append(
+            "NO_DISTANCE"
+        )
 
-    if not np.isfinite(diameter_kpc):
-        problems.append("NO_DIAMETER")
+    if not np.isfinite(
+        diameter_kpc
+    ):
+        problems.append(
+            "NO_DIAMETER"
+        )
 
-    if len(problems) == 0:
-        host_status = "OK"
+    if problems:
+        host_status = ";".join(
+            problems
+        )
     else:
-        host_status = ";".join(problems)
+        host_status = "OK"
 
     return {
-        "host_ra": host_ra,
-        "host_dec": host_dec,
-        "mean_distance_mpc": mean_distance,
-        "hubble_distance_mpc": hubble_distance,
-        "distance_mpc": distance_mpc,
-        "distance_method": distance_method,
-        "diameter_kpc": diameter_kpc,
-        "diameter_arcsec": diameter_arcsec,
-        "diameter_bandpass": diameter_bandpass,
-        "diameter_reference": diameter_reference,
-        "host_status": host_status
+        "host_ra":
+            host_ra,
+
+        "host_dec":
+            host_dec,
+
+        "mean_distance_mpc":
+            mean_distance,
+
+        "hubble_distance_mpc":
+            hubble_distance,
+
+        "distance_mpc":
+            distance_mpc,
+
+        "distance_method":
+            distance_method,
+
+        "diameter_kpc":
+            diameter_kpc,
+
+        "diameter_arcsec":
+            diameter_arcsec,
+
+        "diameter_bandpass":
+            diameter_bandpass,
+
+        "diameter_reference":
+            diameter_reference,
+
+        "host_status":
+            host_status
     }
 
 
@@ -577,20 +1320,19 @@ def query_host(host_name):
 
 print("Reading CSV...")
 
-df = pd.read_csv(INPUT_CSV)
+df = pd.read_csv(
+    INPUT_CSV
+)
 
 if SN_NAME_COL not in df.columns:
-    raise ValueError("Missing column: sn_name")
+    raise ValueError(
+        "Missing column: sn_name"
+    )
 
 if HOST_NAME_COL not in df.columns:
-    raise ValueError("Missing column: host_name")
-
-
-df = df.dropna(
-    subset=[SN_NAME_COL, HOST_NAME_COL],
-    how="all"
-).copy()
-
+    raise ValueError(
+        "Missing column: host_name"
+    )
 
 df[SN_NAME_COL] = (
     df[SN_NAME_COL]
@@ -606,18 +1348,36 @@ df[HOST_NAME_COL] = (
 
 
 # ============================================================
-# UNIQUE NAMES
+# UNIQUE OBJECTS
 # ============================================================
 
-unique_sne = df[SN_NAME_COL].dropna()
-unique_sne = unique_sne[unique_sne != ""].unique()
+unique_sne = (
+    df[SN_NAME_COL]
+    .dropna()
+)
 
-unique_hosts = df[HOST_NAME_COL].dropna()
-unique_hosts = unique_hosts[unique_hosts != ""].unique()
+unique_sne = (
+    unique_sne[
+        unique_sne != ""
+    ]
+    .unique()
+)
+
+unique_hosts = (
+    df[HOST_NAME_COL]
+    .dropna()
+)
+
+unique_hosts = (
+    unique_hosts[
+        unique_hosts != ""
+    ]
+    .unique()
+)
 
 
 # ============================================================
-# QUERY SNe
+# QUERY SUPERNOVAE
 # ============================================================
 
 sn_cache = {}
@@ -625,24 +1385,88 @@ sn_cache = {}
 print()
 print("QUERYING SUPERNOVAE")
 
+for i, sn_name in enumerate(
+    unique_sne,
+    start=1
+):
 
-for i, sn_name in enumerate(unique_sne, start=1):
+    print()
+    print(
+        "SN",
+        i,
+        "of",
+        len(unique_sne),
+        ":",
+        sn_name
+    )
 
-    print("SN", i, "of", len(unique_sne), ":", sn_name)
+    result = query_supernova(
+        sn_name
+    )
 
-    result = query_supernova(sn_name)
+    sn_cache[
+        sn_name
+    ] = result
 
-    sn_cache[sn_name] = result
+    print(
+        "RA:",
+        result["sn_ra"]
+    )
 
-    print("RA:", result["sn_ra"])
-    print("Dec:", result["sn_dec"])
-    print("Status:", result["sn_status"])
+    print(
+        "Dec:",
+        result["sn_dec"]
+    )
 
-    time.sleep(QUERY_DELAY)
+    print(
+        "Redshift:",
+        result[
+            "sn_redshift"
+        ]
+    )
+
+    print(
+        "Selection:",
+        result[
+            "sn_redshift_selection"
+        ]
+    )
+
+    print(
+        "Technique:",
+        result[
+            "sn_redshift_technique"
+        ]
+    )
+
+    print(
+        "Reference:",
+        result[
+            "sn_redshift_reference"
+        ]
+    )
+
+    print(
+        "NED redshift measurements:",
+        result[
+            "ned_redshift_measurement_count"
+        ]
+    )
+
+    print(
+        "Status:",
+        result[
+            "sn_status"
+        ]
+    )
+
+    time.sleep(
+        QUERY_DELAY
+    )
 
 
 # ============================================================
-# QUERY HOST GALAXIES
+# QUERY HOSTS
 # ============================================================
 
 host_cache = {}
@@ -650,46 +1474,87 @@ host_cache = {}
 print()
 print("QUERYING HOST GALAXIES")
 
-
-for i, host_name in enumerate(unique_hosts, start=1):
+for i, host_name in enumerate(
+    unique_hosts,
+    start=1
+):
 
     print()
-    print("Galaxy", i, "of", len(unique_hosts), ":", host_name)
+    print(
+        "Galaxy",
+        i,
+        "of",
+        len(unique_hosts),
+        ":",
+        host_name
+    )
 
-    result = query_host(host_name)
+    result = query_host(
+        host_name
+    )
 
-    host_cache[host_name] = result
+    host_cache[
+        host_name
+    ] = result
 
-    print("RA:", result["host_ra"])
-    print("Dec:", result["host_dec"])
-    print("Mean Distance:", result["mean_distance_mpc"], "Mpc")
-    print("Hubble Distance:", result["hubble_distance_mpc"], "Mpc")
-    print("Selected Distance:", result["distance_mpc"], "Mpc")
-    print("Distance Method:", result["distance_method"])
-    print("Diameter:", result["diameter_kpc"], "kpc")
-    print("Angular Diameter:", result["diameter_arcsec"], "arcsec")
-    print("Status:", result["host_status"])
+    print(
+        "Distance:",
+        result[
+            "distance_mpc"
+        ],
+        "Mpc"
+    )
 
-    time.sleep(QUERY_DELAY)
+    print(
+        "Diameter:",
+        result[
+            "diameter_kpc"
+        ],
+        "kpc"
+    )
+
+    print(
+        "Status:",
+        result[
+            "host_status"
+        ]
+    )
+
+    time.sleep(
+        QUERY_DELAY
+    )
 
 
 # ============================================================
-# CALCULATE OFFSETS
+# BUILD OUTPUT
 # ============================================================
 
 output_rows = []
 
-
 for _, row in df.iterrows():
 
-    sn_name = row[SN_NAME_COL]
-    host_name = row[HOST_NAME_COL]
+    sn_name = row[
+        SN_NAME_COL
+    ]
+
+    host_name = row[
+        HOST_NAME_COL
+    ]
 
     sn_result = sn_cache.get(
         sn_name,
         {
             "sn_ra": np.nan,
             "sn_dec": np.nan,
+            "sn_redshift": np.nan,
+            "sn_redshift_unc": np.nan,
+            "sn_redshift_source": "",
+            "sn_redshift_selection": "",
+            "sn_redshift_technique": "",
+            "sn_redshift_method": "",
+            "sn_redshift_quality": "",
+            "sn_redshift_reference": "",
+            "ned_redshift_measurement_count": 0,
             "sn_status": "SN_NOT_FOUND"
         }
     )
@@ -717,29 +1582,33 @@ for _, row in df.iterrows():
     host_ra = host_result["host_ra"]
     host_dec = host_result["host_dec"]
 
-    distance_mpc = host_result["distance_mpc"]
+    distance_mpc = host_result[
+        "distance_mpc"
+    ]
+
+    diameter_kpc = host_result[
+        "diameter_kpc"
+    ]
 
     offset_arcsec = np.nan
     offset_kpc = np.nan
 
     problems = []
 
-    if sn_result["sn_status"] != "OK":
-        problems.append(sn_result["sn_status"])
-
-    if host_result["host_status"] != "OK":
-        problems.append(host_result["host_status"])
-
     coordinates_ok = (
         np.isfinite(sn_ra)
-        and np.isfinite(sn_dec)
-        and np.isfinite(host_ra)
-        and np.isfinite(host_dec)
+        and
+        np.isfinite(sn_dec)
+        and
+        np.isfinite(host_ra)
+        and
+        np.isfinite(host_dec)
     )
 
     if coordinates_ok:
 
         try:
+
             sn_coord = SkyCoord(
                 ra=sn_ra * u.deg,
                 dec=sn_dec * u.deg,
@@ -752,72 +1621,222 @@ for _, row in df.iterrows():
                 frame="icrs"
             )
 
-            separation = sn_coord.separation(host_coord)
+            separation = (
+                sn_coord.separation(
+                    host_coord
+                )
+            )
 
-            offset_arcsec = separation.to_value(u.arcsec)
+            offset_arcsec = (
+                separation.to_value(
+                    u.arcsec
+                )
+            )
 
-            if np.isfinite(distance_mpc):
+            if np.isfinite(
+                distance_mpc
+            ):
 
                 offset_kpc = (
                     distance_mpc
                     * 1000.0
-                    * separation.to_value(u.rad)
+                    * separation.to_value(
+                        u.rad
+                    )
                 )
 
             else:
-                problems.append("NO_DISTANCE_FOR_OFFSET")
+
+                problems.append(
+                    "NO_DISTANCE_FOR_OFFSET"
+                )
 
         except Exception as error:
+
             problems.append(
-                "OFFSET_ERROR: " + str(error)
+                "OFFSET_ERROR: "
+                + str(error)
             )
 
     else:
+
         problems.append(
             "MISSING_COORDINATES_FOR_OFFSET"
         )
 
-    if len(problems) == 0:
-        final_status = "OK"
-    else:
-        final_status = ";".join(
-            dict.fromkeys(problems)
+    if (
+        np.isfinite(diameter_kpc)
+        and
+        diameter_kpc > 0
+    ):
+
+        galaxy_radius_kpc = (
+            diameter_kpc / 2.0
         )
 
+    else:
+
+        galaxy_radius_kpc = np.nan
+
+    if (
+        np.isfinite(offset_kpc)
+        and
+        np.isfinite(
+            galaxy_radius_kpc
+        )
+        and
+        galaxy_radius_kpc > 0
+    ):
+
+        offset_over_galaxy_radius = (
+            offset_kpc
+            /
+            galaxy_radius_kpc
+        )
+
+    else:
+
+        offset_over_galaxy_radius = (
+            np.nan
+        )
+
+    if (
+        sn_result["sn_status"]
+        != "OK"
+    ):
+
+        problems.append(
+            sn_result[
+                "sn_status"
+            ]
+        )
+
+    if (
+        host_result["host_status"]
+        != "OK"
+    ):
+
+        problems.append(
+            host_result[
+                "host_status"
+            ]
+        )
+
+    if problems:
+
+        final_status = ";".join(
+            dict.fromkeys(
+                problems
+            )
+        )
+
+    else:
+
+        final_status = "OK"
+
     output_rows.append({
-        "sn_name": sn_name,
 
-        "sn_ra_ned": sn_ra,
-        "sn_dec_ned": sn_dec,
+        "sn_name":
+            sn_name,
 
-        "host_name": host_name,
+        "sn_ra_ned":
+            sn_ra,
 
-        "host_ra_ned": host_ra,
-        "host_dec_ned": host_dec,
+        "sn_dec_ned":
+            sn_dec,
+
+        "sn_redshift":
+            sn_result[
+                "sn_redshift"
+            ],
+
+        "sn_redshift_unc":
+            sn_result[
+                "sn_redshift_unc"
+            ],
+
+        "sn_redshift_source":
+            sn_result[
+                "sn_redshift_source"
+            ],
+
+        "sn_redshift_selection":
+            sn_result[
+                "sn_redshift_selection"
+            ],
+
+        "sn_redshift_technique":
+            sn_result[
+                "sn_redshift_technique"
+            ],
+
+        "sn_redshift_method":
+            sn_result[
+                "sn_redshift_method"
+            ],
+
+        "sn_redshift_quality":
+            sn_result[
+                "sn_redshift_quality"
+            ],
+
+        "sn_redshift_reference":
+            sn_result[
+                "sn_redshift_reference"
+            ],
+
+        "ned_redshift_measurement_count":
+            sn_result[
+                "ned_redshift_measurement_count"
+            ],
+
+        "host_name":
+            host_name,
+
+        "host_ra_ned":
+            host_ra,
+
+        "host_dec_ned":
+            host_dec,
 
         "mean_distance_mpc":
-            host_result["mean_distance_mpc"],
+            host_result[
+                "mean_distance_mpc"
+            ],
 
         "hubble_distance_mpc":
-            host_result["hubble_distance_mpc"],
+            host_result[
+                "hubble_distance_mpc"
+            ],
 
         "distance_mpc":
             distance_mpc,
 
         "distance_method":
-            host_result["distance_method"],
+            host_result[
+                "distance_method"
+            ],
 
         "diameter_kpc":
-            host_result["diameter_kpc"],
+            diameter_kpc,
+
+        "galaxy_radius_kpc":
+            galaxy_radius_kpc,
 
         "diameter_arcsec":
-            host_result["diameter_arcsec"],
+            host_result[
+                "diameter_arcsec"
+            ],
 
         "diameter_bandpass":
-            host_result["diameter_bandpass"],
+            host_result[
+                "diameter_bandpass"
+            ],
 
         "diameter_reference":
-            host_result["diameter_reference"],
+            host_result[
+                "diameter_reference"
+            ],
 
         "offset_arcsec":
             offset_arcsec,
@@ -825,11 +1844,18 @@ for _, row in df.iterrows():
         "offset_kpc":
             offset_kpc,
 
+        "offset_over_galaxy_radius":
+            offset_over_galaxy_radius,
+
         "sn_status":
-            sn_result["sn_status"],
+            sn_result[
+                "sn_status"
+            ],
 
         "host_status":
-            host_result["host_status"],
+            host_result[
+                "host_status"
+            ],
 
         "status":
             final_status
@@ -840,29 +1866,15 @@ for _, row in df.iterrows():
 # SAVE
 # ============================================================
 
-output = pd.DataFrame(output_rows)
-
-# ============================================================
-# GALAXY RADIUS AND NORMALIZED OFFSET
-# ============================================================
-
-output["galaxy_radius_kpc"] = (
-    output["diameter_kpc"] / 2.0
+output = pd.DataFrame(
+    output_rows
 )
-
-output["offset_over_galaxy_radius"] = (
-    output["offset_kpc"]
-    / output["galaxy_radius_kpc"]
-)
-
-# ============================================================
-# SAVE
-# ============================================================
 
 output.to_csv(
     OUTPUT_CSV,
     index=False
 )
+
 
 # ============================================================
 # SUMMARY
@@ -870,10 +1882,56 @@ output.to_csv(
 
 print()
 print("FINISHED")
-print("Total rows:", len(output))
-print("SN coordinates found:", output["sn_ra_ned"].notna().sum())
-print("Host coordinates found:", output["host_ra_ned"].notna().sum())
-print("Distances found:", output["distance_mpc"].notna().sum())
-print("Diameters found:", output["diameter_kpc"].notna().sum())
-print("Offsets calculated:", output["offset_kpc"].notna().sum())
-print("Saved to:", OUTPUT_CSV)
+
+print(
+    "Total rows:",
+    len(output)
+)
+
+print(
+    "SN redshifts found:",
+    output[
+        "sn_redshift"
+    ].notna().sum()
+)
+
+print(
+    "SN coordinates found:",
+    output[
+        "sn_ra_ned"
+    ].notna().sum()
+)
+
+print(
+    "Distances found:",
+    output[
+        "distance_mpc"
+    ].notna().sum()
+)
+
+print(
+    "Diameters found:",
+    output[
+        "diameter_kpc"
+    ].notna().sum()
+)
+
+print(
+    "Offsets calculated:",
+    output[
+        "offset_kpc"
+    ].notna().sum()
+)
+
+print(
+    "Normalized offsets calculated:",
+    output[
+        "offset_over_galaxy_radius"
+    ].notna().sum()
+)
+
+print()
+print(
+    "Saved to:",
+    OUTPUT_CSV
+)
