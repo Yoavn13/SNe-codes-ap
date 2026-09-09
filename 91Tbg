@@ -1,0 +1,863 @@
+import io
+import time
+import requests
+import numpy as np
+import pandas as pd
+
+import astropy.units as u
+from astropy.coordinates import SkyCoord
+from astropy.io.votable import parse
+
+
+# ============================================================
+# FILES
+# ============================================================
+
+INPUT_CSV = r"C:\Users\amirn\Downloads\supernovae.csv"
+OUTPUT_CSV = r"C:\Users\amirn\Downloads\supernovae_with_ned_data.csv"
+
+
+# ============================================================
+# CSV COLUMNS
+# ============================================================
+
+SN_NAME_COL = "sn_name"
+HOST_NAME_COL = "host_name"
+
+
+# ============================================================
+# NED API
+# ============================================================
+
+NED_CONE_URL = "https://ned.ipac.caltech.edu/NED::API/ConeSearchByTarget"
+NED_OVERVIEW_URL = "https://ned.ipac.caltech.edu/NED::API/OverviewOfObject"
+
+MAX_RETRIES = 3
+QUERY_DELAY = 0.5
+
+
+# ============================================================
+# BASIC HELPERS
+# ============================================================
+
+def clean_value(value):
+    if value is None:
+        return np.nan
+
+    try:
+        if np.ma.is_masked(value):
+            return np.nan
+    except Exception:
+        pass
+
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace").strip()
+
+    try:
+        return value.item()
+    except Exception:
+        return value
+
+
+def normalize(text):
+    return "".join(
+        ch.lower()
+        for ch in str(text)
+        if ch.isalnum()
+    )
+
+
+def request_votable(url, params, object_name):
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.get(
+                url,
+                params=params,
+                timeout=60
+            )
+
+            response.raise_for_status()
+
+            return parse(
+                io.BytesIO(response.content)
+            )
+
+        except Exception as error:
+            print("NED query failed:", object_name)
+            print("Attempt:", attempt)
+            print("Error:", error)
+
+            if attempt < MAX_RETRIES:
+                time.sleep(2)
+
+    return None
+
+
+# ============================================================
+# SEARCH VOTABLE FIELDS
+# ============================================================
+
+def all_field_records(votable):
+    """
+    Return every field together with the corresponding
+    Astropy table column.
+
+    This does not assume that table.colnames are the same
+    as the human-readable NED labels.
+    """
+
+    records = []
+
+    if votable is None:
+        return records
+
+    for resource in votable.resources:
+        for table_element in resource.tables:
+
+            try:
+                table = table_element.to_table()
+            except Exception:
+                continue
+
+            if table is None or len(table) == 0:
+                continue
+
+            fields = table_element.fields
+
+            for index, field in enumerate(fields):
+
+                if index >= len(table.colnames):
+                    continue
+
+                name = field.name or ""
+                field_id = field.ID or ""
+                description = field.description or ""
+                unit = str(field.unit or "")
+
+                records.append({
+                    "table": table,
+                    "column": table.colnames[index],
+                    "name": str(name),
+                    "id": str(field_id),
+                    "description": str(description),
+                    "unit": unit
+                })
+
+    return records
+
+
+def first_number_from_record(record):
+    table = record["table"]
+    column = record["column"]
+
+    for value in table[column]:
+        value = clean_value(value)
+
+        try:
+            number = float(value)
+
+            if np.isfinite(number):
+                return number
+
+        except Exception:
+            continue
+
+    return np.nan
+
+
+def first_text_from_record(record):
+    table = record["table"]
+    column = record["column"]
+
+    for value in table[column]:
+        value = clean_value(value)
+
+        if pd.notna(value):
+            text = str(value).strip()
+
+            if text:
+                return text
+
+    return ""
+
+
+# ============================================================
+# EXACT / SEMANTIC FIELD MATCHING
+# ============================================================
+
+def get_number_exact(votable, labels):
+    targets = [normalize(x) for x in labels]
+
+    for record in all_field_records(votable):
+
+        metadata = [
+            normalize(record["name"]),
+            normalize(record["id"])
+        ]
+
+        for target in targets:
+            if target in metadata:
+                value = first_number_from_record(record)
+
+                if np.isfinite(value):
+                    return value
+
+    return np.nan
+
+
+def get_text_exact(votable, labels):
+    targets = [normalize(x) for x in labels]
+
+    for record in all_field_records(votable):
+
+        metadata = [
+            normalize(record["name"]),
+            normalize(record["id"])
+        ]
+
+        for target in targets:
+            if target in metadata:
+                value = first_text_from_record(record)
+
+                if value:
+                    return value
+
+    return ""
+
+
+def get_mean_distance(votable):
+    # First try NED's official field name.
+    value = get_number_exact(
+        votable,
+        ["Mean Distance"]
+    )
+
+    if np.isfinite(value):
+        return value
+
+    # Semantic fallback based on NED description and Mpc unit.
+    for record in all_field_records(votable):
+
+        description = normalize(record["description"])
+        name = normalize(record["name"])
+        unit = normalize(record["unit"])
+
+        looks_like_mean_distance = (
+            "mpc" in unit
+            and (
+                "meandistance" in name
+                or "meanofthedistance" in description
+                or (
+                    "mean" in description
+                    and "distance" in description
+                )
+            )
+        )
+
+        if looks_like_mean_distance:
+            value = first_number_from_record(record)
+
+            if np.isfinite(value):
+                return value
+
+    return np.nan
+
+
+def get_hubble_distance(votable):
+    # Official NED field name.
+    value = get_number_exact(
+        votable,
+        [
+            "D (3K CMB)",
+            "D3KCMB"
+        ]
+    )
+
+    if np.isfinite(value):
+        return value
+
+    # Semantic fallback.
+    for record in all_field_records(votable):
+
+        description = normalize(record["description"])
+        name = normalize(record["name"])
+        unit = normalize(record["unit"])
+
+        looks_like_hubble_distance = (
+            "mpc" in unit
+            and (
+                "d3kcmb" in name
+                or "hubbleflowdistance" in description
+                or (
+                    "distance" in description
+                    and "cosmicmicrowavebackground" in description
+                )
+            )
+        )
+
+        if looks_like_hubble_distance:
+            value = first_number_from_record(record)
+
+            if np.isfinite(value):
+                return value
+
+    return np.nan
+
+
+def get_physical_diameter(votable):
+    # Official NED field name.
+    value = get_number_exact(
+        votable,
+        [
+            "Physical Major Axis",
+            "PhysicalMajorAxis"
+        ]
+    )
+
+    if np.isfinite(value):
+        return value
+
+    # Semantic fallback: physical major axis, kpc.
+    for record in all_field_records(votable):
+
+        name = normalize(record["name"])
+        description = normalize(record["description"])
+        unit = normalize(record["unit"])
+
+        looks_like_physical_diameter = (
+            "kpc" in unit
+            and (
+                "physicalmajoraxis" in name
+                or "physicalmajoraxis" in description
+                or (
+                    "physical" in description
+                    and "majoraxis" in description
+                )
+            )
+        )
+
+        if looks_like_physical_diameter:
+            value = first_number_from_record(record)
+
+            if np.isfinite(value):
+                return value
+
+    return np.nan
+
+
+def get_angular_diameter(votable):
+    value = get_number_exact(
+        votable,
+        ["Major Axis"]
+    )
+
+    if np.isfinite(value):
+        return value
+
+    # Only accept arcsec major axis here,
+    # so we do not confuse it with Physical Major Axis.
+    for record in all_field_records(votable):
+
+        name = normalize(record["name"])
+        description = normalize(record["description"])
+        unit = normalize(record["unit"])
+
+        if (
+            "arcsec" in unit
+            and (
+                name == "majoraxis"
+                or "majoraxisdiameter" in description
+            )
+        ):
+            value = first_number_from_record(record)
+
+            if np.isfinite(value):
+                return value
+
+    return np.nan
+
+
+# ============================================================
+# COORDINATES
+# ============================================================
+
+def get_coordinates(object_name):
+    """
+    Uses ConeSearchByTarget with RADIUS=0.
+    NED documents RA and Dec directly in degrees here.
+    """
+
+    params = {
+        "TARGET": str(object_name).strip(),
+        "RADIUS": 0
+    }
+
+    votable = request_votable(
+        NED_CONE_URL,
+        params,
+        object_name
+    )
+
+    if votable is None:
+        return np.nan, np.nan
+
+    ra = get_number_exact(
+        votable,
+        ["RA"]
+    )
+
+    dec = get_number_exact(
+        votable,
+        ["Dec"]
+    )
+
+    if np.isfinite(ra) and np.isfinite(dec):
+        return ra, dec
+
+    # Fallback to sexagesimal coordinates.
+    ra_text = get_text_exact(
+        votable,
+        ["RA-s"]
+    )
+
+    dec_text = get_text_exact(
+        votable,
+        ["Dec-s"]
+    )
+
+    if ra_text and dec_text:
+        try:
+            coord = SkyCoord(
+                ra_text,
+                dec_text,
+                unit=(u.hourangle, u.deg),
+                frame="icrs"
+            )
+
+            return coord.ra.deg, coord.dec.deg
+
+        except Exception:
+            pass
+
+    return np.nan, np.nan
+
+
+# ============================================================
+# SUPERNOVA
+# ============================================================
+
+def query_supernova(sn_name):
+    sn_ra, sn_dec = get_coordinates(sn_name)
+
+    if np.isfinite(sn_ra) and np.isfinite(sn_dec):
+        status = "OK"
+    else:
+        status = "NO_SN_COORDINATES"
+
+    return {
+        "sn_ra": sn_ra,
+        "sn_dec": sn_dec,
+        "sn_status": status
+    }
+
+
+# ============================================================
+# HOST GALAXY
+# ============================================================
+
+def query_host(host_name):
+
+    # --------------------------------------------------------
+    # Coordinates
+    # --------------------------------------------------------
+
+    host_ra, host_dec = get_coordinates(host_name)
+
+    # --------------------------------------------------------
+    # NED Overview
+    # --------------------------------------------------------
+
+    params = {
+        "TARGET": str(host_name).strip()
+    }
+
+    votable = request_votable(
+        NED_OVERVIEW_URL,
+        params,
+        host_name
+    )
+
+    if votable is None:
+        return {
+            "host_ra": host_ra,
+            "host_dec": host_dec,
+            "mean_distance_mpc": np.nan,
+            "hubble_distance_mpc": np.nan,
+            "distance_mpc": np.nan,
+            "distance_method": "NED overview failed",
+            "diameter_kpc": np.nan,
+            "diameter_arcsec": np.nan,
+            "diameter_bandpass": "",
+            "diameter_reference": "",
+            "host_status": "OVERVIEW_QUERY_FAILED"
+        }
+
+    # --------------------------------------------------------
+    # Distances
+    # --------------------------------------------------------
+
+    mean_distance = get_mean_distance(votable)
+
+    hubble_distance = get_hubble_distance(votable)
+
+    if np.isfinite(mean_distance):
+        distance_mpc = mean_distance
+        distance_method = "Mean Distance"
+
+    elif np.isfinite(hubble_distance):
+        distance_mpc = hubble_distance
+        distance_method = "Hubble Distance (CMB)"
+
+    else:
+        distance_mpc = np.nan
+        distance_method = "No distance available"
+
+    # --------------------------------------------------------
+    # Diameter directly from NED
+    # --------------------------------------------------------
+
+    diameter_kpc = get_physical_diameter(votable)
+
+    diameter_arcsec = get_angular_diameter(votable)
+
+    diameter_bandpass = get_text_exact(
+        votable,
+        ["Bandpass"]
+    )
+
+    diameter_reference = get_text_exact(
+        votable,
+        ["Diameter Refcode"]
+    )
+
+    problems = []
+
+    if not np.isfinite(host_ra) or not np.isfinite(host_dec):
+        problems.append("NO_HOST_COORDINATES")
+
+    if not np.isfinite(distance_mpc):
+        problems.append("NO_DISTANCE")
+
+    if not np.isfinite(diameter_kpc):
+        problems.append("NO_DIAMETER")
+
+    if len(problems) == 0:
+        host_status = "OK"
+    else:
+        host_status = ";".join(problems)
+
+    return {
+        "host_ra": host_ra,
+        "host_dec": host_dec,
+        "mean_distance_mpc": mean_distance,
+        "hubble_distance_mpc": hubble_distance,
+        "distance_mpc": distance_mpc,
+        "distance_method": distance_method,
+        "diameter_kpc": diameter_kpc,
+        "diameter_arcsec": diameter_arcsec,
+        "diameter_bandpass": diameter_bandpass,
+        "diameter_reference": diameter_reference,
+        "host_status": host_status
+    }
+
+
+# ============================================================
+# READ CSV
+# ============================================================
+
+print("Reading CSV...")
+
+df = pd.read_csv(INPUT_CSV)
+
+if SN_NAME_COL not in df.columns:
+    raise ValueError("Missing column: sn_name")
+
+if HOST_NAME_COL not in df.columns:
+    raise ValueError("Missing column: host_name")
+
+
+df = df.dropna(
+    subset=[SN_NAME_COL, HOST_NAME_COL],
+    how="all"
+).copy()
+
+
+df[SN_NAME_COL] = (
+    df[SN_NAME_COL]
+    .astype("string")
+    .str.strip()
+)
+
+df[HOST_NAME_COL] = (
+    df[HOST_NAME_COL]
+    .astype("string")
+    .str.strip()
+)
+
+
+# ============================================================
+# UNIQUE NAMES
+# ============================================================
+
+unique_sne = df[SN_NAME_COL].dropna()
+unique_sne = unique_sne[unique_sne != ""].unique()
+
+unique_hosts = df[HOST_NAME_COL].dropna()
+unique_hosts = unique_hosts[unique_hosts != ""].unique()
+
+
+# ============================================================
+# QUERY SNe
+# ============================================================
+
+sn_cache = {}
+
+print()
+print("QUERYING SUPERNOVAE")
+
+
+for i, sn_name in enumerate(unique_sne, start=1):
+
+    print("SN", i, "of", len(unique_sne), ":", sn_name)
+
+    result = query_supernova(sn_name)
+
+    sn_cache[sn_name] = result
+
+    print("RA:", result["sn_ra"])
+    print("Dec:", result["sn_dec"])
+    print("Status:", result["sn_status"])
+
+    time.sleep(QUERY_DELAY)
+
+
+# ============================================================
+# QUERY HOST GALAXIES
+# ============================================================
+
+host_cache = {}
+
+print()
+print("QUERYING HOST GALAXIES")
+
+
+for i, host_name in enumerate(unique_hosts, start=1):
+
+    print()
+    print("Galaxy", i, "of", len(unique_hosts), ":", host_name)
+
+    result = query_host(host_name)
+
+    host_cache[host_name] = result
+
+    print("RA:", result["host_ra"])
+    print("Dec:", result["host_dec"])
+    print("Mean Distance:", result["mean_distance_mpc"], "Mpc")
+    print("Hubble Distance:", result["hubble_distance_mpc"], "Mpc")
+    print("Selected Distance:", result["distance_mpc"], "Mpc")
+    print("Distance Method:", result["distance_method"])
+    print("Diameter:", result["diameter_kpc"], "kpc")
+    print("Angular Diameter:", result["diameter_arcsec"], "arcsec")
+    print("Status:", result["host_status"])
+
+    time.sleep(QUERY_DELAY)
+
+
+# ============================================================
+# CALCULATE OFFSETS
+# ============================================================
+
+output_rows = []
+
+
+for _, row in df.iterrows():
+
+    sn_name = row[SN_NAME_COL]
+    host_name = row[HOST_NAME_COL]
+
+    sn_result = sn_cache.get(
+        sn_name,
+        {
+            "sn_ra": np.nan,
+            "sn_dec": np.nan,
+            "sn_status": "SN_NOT_FOUND"
+        }
+    )
+
+    host_result = host_cache.get(
+        host_name,
+        {
+            "host_ra": np.nan,
+            "host_dec": np.nan,
+            "mean_distance_mpc": np.nan,
+            "hubble_distance_mpc": np.nan,
+            "distance_mpc": np.nan,
+            "distance_method": "",
+            "diameter_kpc": np.nan,
+            "diameter_arcsec": np.nan,
+            "diameter_bandpass": "",
+            "diameter_reference": "",
+            "host_status": "HOST_NOT_FOUND"
+        }
+    )
+
+    sn_ra = sn_result["sn_ra"]
+    sn_dec = sn_result["sn_dec"]
+
+    host_ra = host_result["host_ra"]
+    host_dec = host_result["host_dec"]
+
+    distance_mpc = host_result["distance_mpc"]
+
+    offset_arcsec = np.nan
+    offset_kpc = np.nan
+
+    problems = []
+
+    if sn_result["sn_status"] != "OK":
+        problems.append(sn_result["sn_status"])
+
+    if host_result["host_status"] != "OK":
+        problems.append(host_result["host_status"])
+
+    coordinates_ok = (
+        np.isfinite(sn_ra)
+        and np.isfinite(sn_dec)
+        and np.isfinite(host_ra)
+        and np.isfinite(host_dec)
+    )
+
+    if coordinates_ok:
+
+        try:
+            sn_coord = SkyCoord(
+                ra=sn_ra * u.deg,
+                dec=sn_dec * u.deg,
+                frame="icrs"
+            )
+
+            host_coord = SkyCoord(
+                ra=host_ra * u.deg,
+                dec=host_dec * u.deg,
+                frame="icrs"
+            )
+
+            separation = sn_coord.separation(host_coord)
+
+            offset_arcsec = separation.to_value(u.arcsec)
+
+            if np.isfinite(distance_mpc):
+
+                offset_kpc = (
+                    distance_mpc
+                    * 1000.0
+                    * separation.to_value(u.rad)
+                )
+
+            else:
+                problems.append("NO_DISTANCE_FOR_OFFSET")
+
+        except Exception as error:
+            problems.append(
+                "OFFSET_ERROR: " + str(error)
+            )
+
+    else:
+        problems.append(
+            "MISSING_COORDINATES_FOR_OFFSET"
+        )
+
+    if len(problems) == 0:
+        final_status = "OK"
+    else:
+        final_status = ";".join(
+            dict.fromkeys(problems)
+        )
+
+    output_rows.append({
+        "sn_name": sn_name,
+
+        "sn_ra_ned": sn_ra,
+        "sn_dec_ned": sn_dec,
+
+        "host_name": host_name,
+
+        "host_ra_ned": host_ra,
+        "host_dec_ned": host_dec,
+
+        "mean_distance_mpc":
+            host_result["mean_distance_mpc"],
+
+        "hubble_distance_mpc":
+            host_result["hubble_distance_mpc"],
+
+        "distance_mpc":
+            distance_mpc,
+
+        "distance_method":
+            host_result["distance_method"],
+
+        "diameter_kpc":
+            host_result["diameter_kpc"],
+
+        "diameter_arcsec":
+            host_result["diameter_arcsec"],
+
+        "diameter_bandpass":
+            host_result["diameter_bandpass"],
+
+        "diameter_reference":
+            host_result["diameter_reference"],
+
+        "offset_arcsec":
+            offset_arcsec,
+
+        "offset_kpc":
+            offset_kpc,
+
+        "sn_status":
+            sn_result["sn_status"],
+
+        "host_status":
+            host_result["host_status"],
+
+        "status":
+            final_status
+    })
+
+
+# ============================================================
+# SAVE
+# ============================================================
+
+output = pd.DataFrame(output_rows)
+
+output.to_csv(
+    OUTPUT_CSV,
+    index=False
+)
+
+
+# ============================================================
+# SUMMARY
+# ============================================================
+
+print()
+print("FINISHED")
+print("Total rows:", len(output))
+print("SN coordinates found:", output["sn_ra_ned"].notna().sum())
+print("Host coordinates found:", output["host_ra_ned"].notna().sum())
+print("Distances found:", output["distance_mpc"].notna().sum())
+print("Diameters found:", output["diameter_kpc"].notna().sum())
+print("Offsets calculated:", output["offset_kpc"].notna().sum())
+print("Saved to:", OUTPUT_CSV)
