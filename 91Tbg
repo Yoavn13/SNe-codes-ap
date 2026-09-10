@@ -14,7 +14,10 @@ from astropy.io.votable import parse
 # ============================================================
 
 INPUT_CSV = r"C:\Users\amirn\Downloads\supernovae.csv"
-OUTPUT_CSV = r"C:\Users\amirn\Downloads\supernovae_with_ned_data.csv"
+
+OUTPUT_CSV = (
+    r"C:\Users\amirn\Downloads\supernovae_with_ned_data.csv"
+)
 
 SN_NAME_COL = "sn_name"
 HOST_NAME_COL = "host_name"
@@ -39,8 +42,18 @@ NED_REDSHIFTS_URL = (
     "NED::API/RedshiftsOfObject"
 )
 
-MAX_RETRIES = 3
-QUERY_DELAY = 0.5
+
+# ============================================================
+# CONNECTION SETTINGS
+# ============================================================
+
+MAX_RETRIES = 5
+
+# Time between normal object queries
+QUERY_DELAY = 1.0
+
+# Longer timeout because NED can occasionally be slow
+REQUEST_TIMEOUT = 90
 
 
 # ============================================================
@@ -59,6 +72,7 @@ def clean_value(value):
         pass
 
     if isinstance(value, bytes):
+
         return value.decode(
             "utf-8",
             errors="replace"
@@ -66,6 +80,7 @@ def clean_value(value):
 
     try:
         return value.item()
+
     except Exception:
         return value
 
@@ -84,6 +99,7 @@ def numeric_value(value):
     value = clean_value(value)
 
     try:
+
         number = float(value)
 
         if np.isfinite(number):
@@ -100,8 +116,10 @@ def text_value(value):
     value = clean_value(value)
 
     try:
+
         if pd.isna(value):
             return ""
+
     except Exception:
         pass
 
@@ -127,7 +145,7 @@ def bool_value(value):
 
 
 # ============================================================
-# REQUEST VOTABLE
+# NED REQUEST
 # ============================================================
 
 def request_votable(
@@ -146,7 +164,7 @@ def request_votable(
             response = requests.get(
                 url,
                 params=params,
-                timeout=60
+                timeout=REQUEST_TIMEOUT
             )
 
             response.raise_for_status()
@@ -159,6 +177,7 @@ def request_votable(
 
         except Exception as error:
 
+            print()
             print(
                 "NED query failed:",
                 object_name
@@ -166,7 +185,9 @@ def request_votable(
 
             print(
                 "Attempt:",
-                attempt
+                attempt,
+                "of",
+                MAX_RETRIES
             )
 
             print(
@@ -175,7 +196,27 @@ def request_votable(
             )
 
             if attempt < MAX_RETRIES:
-                time.sleep(2)
+
+                # Progressive waiting:
+                # 5, 10, 20, 40 seconds
+                wait_time = 5 * (
+                    2 ** (attempt - 1)
+                )
+
+                print(
+                    "Waiting",
+                    wait_time,
+                    "seconds before retry..."
+                )
+
+                time.sleep(
+                    wait_time
+                )
+
+    print(
+        "Giving up on this NED request:",
+        object_name
+    )
 
     return None
 
@@ -196,19 +237,27 @@ def all_field_records(votable):
         for table_element in resource.tables:
 
             try:
-                table = table_element.to_table()
+
+                table = (
+                    table_element.to_table()
+                )
 
             except Exception:
                 continue
 
-            if table is None or len(table) == 0:
+            if table is None:
+                continue
+
+            if len(table) == 0:
                 continue
 
             for index, field in enumerate(
                 table_element.fields
             ):
 
-                if index >= len(table.colnames):
+                if index >= len(
+                    table.colnames
+                ):
                     continue
 
                 records.append({
@@ -220,29 +269,45 @@ def all_field_records(votable):
                         table.colnames[index],
 
                     "name":
-                        str(field.name or ""),
+                        str(
+                            field.name or ""
+                        ),
 
                     "id":
-                        str(field.ID or ""),
+                        str(
+                            field.ID or ""
+                        ),
 
                     "description":
-                        str(field.description or ""),
+                        str(
+                            field.description or ""
+                        ),
 
                     "unit":
-                        str(field.unit or "")
+                        str(
+                            field.unit or ""
+                        )
                 })
 
     return records
 
 
-def first_number_from_record(record):
+# ============================================================
+# VALUES FROM VOTABLE FIELD
+# ============================================================
+
+def first_number_from_record(
+    record
+):
 
     table = record["table"]
     column = record["column"]
 
     for value in table[column]:
 
-        number = numeric_value(value)
+        number = numeric_value(
+            value
+        )
 
         if np.isfinite(number):
             return number
@@ -250,14 +315,18 @@ def first_number_from_record(record):
     return np.nan
 
 
-def first_text_from_record(record):
+def first_text_from_record(
+    record
+):
 
     table = record["table"]
     column = record["column"]
 
     for value in table[column]:
 
-        text = text_value(value)
+        text = text_value(
+            value
+        )
 
         if text:
             return text
@@ -266,7 +335,7 @@ def first_text_from_record(record):
 
 
 # ============================================================
-# EXACT FIELD LOOKUPS
+# EXACT FIELD LOOKUP
 # ============================================================
 
 def get_number_exact(
@@ -283,14 +352,21 @@ def get_number_exact(
         votable
     ):
 
-        metadata = [
-            normalize(record["name"]),
-            normalize(record["id"])
-        ]
+        field_name = normalize(
+            record["name"]
+        )
+
+        field_id = normalize(
+            record["id"]
+        )
 
         for target in targets:
 
-            if target in metadata:
+            if (
+                field_name == target
+                or
+                field_id == target
+            ):
 
                 value = (
                     first_number_from_record(
@@ -318,14 +394,21 @@ def get_text_exact(
         votable
     ):
 
-        metadata = [
-            normalize(record["name"]),
-            normalize(record["id"])
-        ]
+        field_name = normalize(
+            record["name"]
+        )
+
+        field_id = normalize(
+            record["id"]
+        )
 
         for target in targets:
 
-            if target in metadata:
+            if (
+                field_name == target
+                or
+                field_id == target
+            ):
 
                 value = (
                     first_text_from_record(
@@ -340,7 +423,7 @@ def get_text_exact(
 
 
 # ============================================================
-# FIND COLUMN IN A VOTABLE TABLE
+# FIND COLUMN IN ONE VOTABLE TABLE
 # ============================================================
 
 def find_table_column(
@@ -358,24 +441,35 @@ def find_table_column(
         table_element.fields
     ):
 
-        if index >= len(table.colnames):
+        if index >= len(
+            table.colnames
+        ):
             continue
 
-        names = [
-            normalize(field.name or ""),
-            normalize(field.ID or "")
+        possible_names = [
+
+            normalize(
+                field.name or ""
+            ),
+
+            normalize(
+                field.ID or ""
+            )
         ]
 
         for target in targets:
 
-            if target in names:
-                return table.colnames[index]
+            if target in possible_names:
+
+                return (
+                    table.colnames[index]
+                )
 
     return None
 
 
 # ============================================================
-# SN REDSHIFT MEASUREMENTS
+# SUPERNOVA REDSHIFTS FROM NED REDSHIFTS TABLE
 # ============================================================
 
 def get_ned_redshift_measurements(
@@ -403,13 +497,25 @@ def get_ned_redshift_measurements(
         for table_element in resource.tables:
 
             try:
-                table = table_element.to_table()
+
+                table = (
+                    table_element.to_table()
+                )
 
             except Exception:
                 continue
 
-            if table is None or len(table) == 0:
+            if (
+                table is None
+                or
+                len(table) == 0
+            ):
                 continue
+
+
+            # ------------------------------------------------
+            # REDSHIFT
+            # ------------------------------------------------
 
             z_col = find_table_column(
                 table_element,
@@ -420,6 +526,11 @@ def get_ned_redshift_measurements(
                 ]
             )
 
+
+            # ------------------------------------------------
+            # UNCERTAINTY
+            # ------------------------------------------------
+
             unc_col = find_table_column(
                 table_element,
                 table,
@@ -429,41 +540,90 @@ def get_ned_redshift_measurements(
                 ]
             )
 
-            technique_col = find_table_column(
-                table_element,
-                table,
-                ["Technique"]
+
+            # ------------------------------------------------
+            # TECHNIQUE
+            # ------------------------------------------------
+
+            technique_col = (
+                find_table_column(
+                    table_element,
+                    table,
+                    [
+                        "Technique"
+                    ]
+                )
             )
 
-            method_col = find_table_column(
-                table_element,
-                table,
-                ["Method"]
+
+            # ------------------------------------------------
+            # METHOD
+            # ------------------------------------------------
+
+            method_col = (
+                find_table_column(
+                    table_element,
+                    table,
+                    [
+                        "Method"
+                    ]
+                )
             )
 
-            quality_col = find_table_column(
-                table_element,
-                table,
-                ["Quality Flag"]
+
+            # ------------------------------------------------
+            # QUALITY
+            # ------------------------------------------------
+
+            quality_col = (
+                find_table_column(
+                    table_element,
+                    table,
+                    [
+                        "Quality Flag"
+                    ]
+                )
             )
 
-            reference_col = find_table_column(
-                table_element,
-                table,
-                [
-                    "Reference",
-                    "Refcode"
-                ]
+
+            # ------------------------------------------------
+            # REFERENCE
+            # ------------------------------------------------
+
+            reference_col = (
+                find_table_column(
+                    table_element,
+                    table,
+                    [
+                        "Reference",
+                        "Refcode"
+                    ]
+                )
             )
 
-            fiducial_col = find_table_column(
-                table_element,
-                table,
-                ["Fiducial"]
+
+            # ------------------------------------------------
+            # FIDUCIAL FLAG
+            # ------------------------------------------------
+
+            fiducial_col = (
+                find_table_column(
+                    table_element,
+                    table,
+                    [
+                        "Fiducial"
+                    ]
+                )
             )
+
 
             if z_col is None:
                 continue
+
+
+            # ------------------------------------------------
+            # READ EVERY REDSHIFT MEASUREMENT
+            # ------------------------------------------------
 
             for row in table:
 
@@ -471,50 +631,91 @@ def get_ned_redshift_measurements(
                     row[z_col]
                 )
 
-                if not np.isfinite(redshift):
+                if not np.isfinite(
+                    redshift
+                ):
                     continue
 
+
                 if unc_col is not None:
-                    uncertainty = numeric_value(
-                        row[unc_col]
+
+                    uncertainty = (
+                        numeric_value(
+                            row[unc_col]
+                        )
                     )
+
                 else:
+
                     uncertainty = np.nan
 
+
                 if technique_col is not None:
-                    technique = text_value(
-                        row[technique_col]
+
+                    technique = (
+                        text_value(
+                            row[
+                                technique_col
+                            ]
+                        )
                     )
+
                 else:
+
                     technique = ""
 
+
                 if method_col is not None:
+
                     method = text_value(
                         row[method_col]
                     )
+
                 else:
+
                     method = ""
 
+
                 if quality_col is not None:
+
                     quality = text_value(
                         row[quality_col]
                     )
+
                 else:
+
                     quality = ""
 
+
                 if reference_col is not None:
-                    reference = text_value(
-                        row[reference_col]
+
+                    reference = (
+                        text_value(
+                            row[
+                                reference_col
+                            ]
+                        )
                     )
+
                 else:
+
                     reference = ""
 
+
                 if fiducial_col is not None:
-                    fiducial = bool_value(
-                        row[fiducial_col]
+
+                    fiducial = (
+                        bool_value(
+                            row[
+                                fiducial_col
+                            ]
+                        )
                     )
+
                 else:
+
                     fiducial = False
+
 
                 measurements.append({
 
@@ -544,7 +745,7 @@ def get_ned_redshift_measurements(
 
 
 # ============================================================
-# SELECT BEST SN REDSHIFT
+# CHOOSE BEST SN REDSHIFT
 # ============================================================
 
 def select_ned_redshift(
@@ -554,16 +755,53 @@ def select_ned_redshift(
     if not measurements:
         return None
 
-    # First choice: NED fiducial row
+
+    # ========================================================
+    # FIRST CHOICE:
+    # NED FIDUCIAL REDSHIFT
+    # ========================================================
+
     fiducial_rows = [
+
         measurement
-        for measurement in measurements
-        if measurement["fiducial"]
+
+        for measurement
+        in measurements
+
+        if measurement[
+            "fiducial"
+        ]
     ]
 
     if fiducial_rows:
 
-        chosen = fiducial_rows[0].copy()
+        # Prefer fiducial without a questionable flag
+        good_fiducial = [
+
+            measurement
+
+            for measurement
+            in fiducial_rows
+
+            if "?" not in
+            measurement[
+                "quality"
+            ]
+        ]
+
+        if good_fiducial:
+
+            chosen = (
+                good_fiducial[0]
+                .copy()
+            )
+
+        else:
+
+            chosen = (
+                fiducial_rows[0]
+                .copy()
+            )
 
         chosen[
             "selection"
@@ -571,27 +809,41 @@ def select_ned_redshift(
 
         return chosen
 
-    # Otherwise rank measurements
+
+    # ========================================================
+    # OTHERWISE RANK AVAILABLE MEASUREMENTS
+    # ========================================================
+
     def technique_rank(text):
 
-        text = str(text).strip().upper()
+        text = (
+            str(text)
+            .strip()
+            .upper()
+        )
 
-        if "SPEC" in text:
+        # Spectroscopic first
+        if (
+            "SPEC" in text
+            or
+            text == "S"
+        ):
             return 0
 
-        if text == "S":
-            return 0
-
+        # Photometric next
         if "PHOT" in text:
             return 1
 
+        # Multiple / mixed
         if "MULT" in text:
             return 2
 
+        # Model
         if "MOD" in text:
             return 3
 
         return 4
+
 
     def measurement_rank(
         measurement
@@ -605,11 +857,12 @@ def select_ned_redshift(
             .upper()
         )
 
-        bad_quality = (
+        questionable = (
             1
             if (
                 "?" in quality
-                or "BAD" in quality
+                or
+                "BAD" in quality
             )
             else 0
         )
@@ -632,19 +885,20 @@ def select_ned_redshift(
             uncertainty
         ):
 
-            uncertainty_missing = 0
+            missing_uncertainty = 0
 
         else:
 
-            uncertainty_missing = 1
+            missing_uncertainty = 1
             uncertainty = np.inf
 
         return (
-            bad_quality,
+            questionable,
             technique,
-            uncertainty_missing,
+            missing_uncertainty,
             uncertainty
         )
+
 
     chosen = sorted(
         measurements,
@@ -657,6 +911,10 @@ def select_ned_redshift(
 
     return chosen
 
+
+# ============================================================
+# FINAL SN REDSHIFT
+# ============================================================
 
 def get_supernova_redshift(
     sn_name
@@ -687,31 +945,114 @@ def get_supernova_redshift(
             "technique":
                 "",
 
-            "method":
-                "",
-
-            "quality":
-                "",
-
             "reference":
                 "",
 
             "selection":
-                "No NED redshift",
-
-            "measurement_count":
-                0
+                "No NED redshift"
         }
-
-    selected[
-        "measurement_count"
-    ] = len(measurements)
 
     return selected
 
 
 # ============================================================
-# DISTANCE
+# HOST MORPHOLOGY
+# ============================================================
+
+def get_host_morphology(
+    votable
+):
+
+    if votable is None:
+
+        return (
+            "",
+            ""
+        )
+
+
+    # NED OverviewOfObject officially provides:
+    #
+    # Morphology
+    # Morphology Refcode
+
+    morphology = (
+        get_text_exact(
+            votable,
+            [
+                "Morphology"
+            ]
+        )
+    )
+
+    morphology_reference = (
+        get_text_exact(
+            votable,
+            [
+                "Morphology Refcode"
+            ]
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # FALLBACK IF FIELD NAME VARIES
+    # --------------------------------------------------------
+
+    if not morphology:
+
+        for record in all_field_records(
+            votable
+        ):
+
+            field_name = normalize(
+                record["name"]
+            )
+
+            field_id = normalize(
+                record["id"]
+            )
+
+            description = normalize(
+                record["description"]
+            )
+
+            looks_like_morphology = (
+                field_name
+                == "morphology"
+                or
+                field_id
+                == "morphology"
+                or
+                (
+                    "optical" in description
+                    and
+                    "morpholog" in description
+                )
+            )
+
+            if looks_like_morphology:
+
+                value = (
+                    first_text_from_record(
+                        record
+                    )
+                )
+
+                if value:
+
+                    morphology = value
+                    break
+
+
+    return (
+        morphology,
+        morphology_reference
+    )
+
+
+# ============================================================
+# HOST MEAN DISTANCE
 # ============================================================
 
 def get_mean_distance(
@@ -720,11 +1061,14 @@ def get_mean_distance(
 
     value = get_number_exact(
         votable,
-        ["Mean Distance"]
+        [
+            "Mean Distance"
+        ]
     )
 
     if np.isfinite(value):
         return value
+
 
     for record in all_field_records(
         votable
@@ -742,17 +1086,26 @@ def get_mean_distance(
             record["unit"]
         )
 
-        if (
+        looks_correct = (
             "mpc" in unit
-            and (
-                "meandistance" in name
-                or (
-                    "mean" in description
+            and
+            (
+                "meandistance"
+                in name
+
+                or
+
+                (
+                    "mean"
+                    in description
                     and
-                    "distance" in description
+                    "distance"
+                    in description
                 )
             )
-        ):
+        )
+
+        if looks_correct:
 
             value = (
                 first_number_from_record(
@@ -765,6 +1118,10 @@ def get_mean_distance(
 
     return np.nan
 
+
+# ============================================================
+# HOST HUBBLE DISTANCE
+# ============================================================
 
 def get_hubble_distance(
     votable
@@ -781,6 +1138,7 @@ def get_hubble_distance(
     if np.isfinite(value):
         return value
 
+
     for record in all_field_records(
         votable
     ):
@@ -797,20 +1155,33 @@ def get_hubble_distance(
             record["unit"]
         )
 
-        if (
+        looks_correct = (
             "mpc" in unit
-            and (
-                "d3kcmb" in name
+            and
+            (
+                "d3kcmb"
+                in name
+
                 or
+
                 "hubbleflowdistance"
                 in description
-                or (
-                    "distance" in description
+
+                or
+
+                (
+                    "distance"
+                    in description
+
                     and
-                    "cmb" in description
+
+                    "cosmicmicrowavebackground"
+                    in description
                 )
             )
-        ):
+        )
+
+        if looks_correct:
 
             value = (
                 first_number_from_record(
@@ -825,7 +1196,7 @@ def get_hubble_distance(
 
 
 # ============================================================
-# DIAMETER
+# HOST PHYSICAL DIAMETER
 # ============================================================
 
 def get_physical_diameter(
@@ -843,6 +1214,7 @@ def get_physical_diameter(
     if np.isfinite(value):
         return value
 
+
     for record in all_field_records(
         votable
     ):
@@ -859,20 +1231,30 @@ def get_physical_diameter(
             record["unit"]
         )
 
-        if (
+        looks_correct = (
             "kpc" in unit
-            and (
+
+            and
+
+            (
                 "physicalmajoraxis"
                 in name
-                or (
+
+                or
+
+                (
                     "physical"
                     in description
+
                     and
+
                     "majoraxis"
                     in description
                 )
             )
-        ):
+        )
+
+        if looks_correct:
 
             value = (
                 first_number_from_record(
@@ -886,17 +1268,24 @@ def get_physical_diameter(
     return np.nan
 
 
+# ============================================================
+# HOST ANGULAR DIAMETER
+# ============================================================
+
 def get_angular_diameter(
     votable
 ):
 
     value = get_number_exact(
         votable,
-        ["Major Axis"]
+        [
+            "Major Axis"
+        ]
     )
 
     if np.isfinite(value):
         return value
+
 
     for record in all_field_records(
         votable
@@ -914,15 +1303,22 @@ def get_angular_diameter(
             record["unit"]
         )
 
-        if (
+        looks_correct = (
             "arcsec" in unit
-            and (
+
+            and
+
+            (
                 name == "majoraxis"
+
                 or
+
                 "majoraxisdiameter"
                 in description
             )
-        ):
+        )
+
+        if looks_correct:
 
             value = (
                 first_number_from_record(
@@ -960,7 +1356,16 @@ def get_coordinates(
     )
 
     if votable is None:
-        return np.nan, np.nan
+
+        return (
+            np.nan,
+            np.nan
+        )
+
+
+    # --------------------------------------------------------
+    # DECIMAL DEGREES
+    # --------------------------------------------------------
 
     ra = get_number_exact(
         votable,
@@ -978,19 +1383,35 @@ def get_coordinates(
         np.isfinite(dec)
     ):
 
-        return ra, dec
+        return (
+            ra,
+            dec
+        )
+
+
+    # --------------------------------------------------------
+    # SEXAGESIMAL FALLBACK
+    # --------------------------------------------------------
 
     ra_text = get_text_exact(
         votable,
-        ["RA-s"]
+        [
+            "RA-s"
+        ]
     )
 
     dec_text = get_text_exact(
         votable,
-        ["Dec-s"]
+        [
+            "Dec-s"
+        ]
     )
 
-    if ra_text and dec_text:
+    if (
+        ra_text
+        and
+        dec_text
+    ):
 
         try:
 
@@ -1012,7 +1433,10 @@ def get_coordinates(
         except Exception:
             pass
 
-    return np.nan, np.nan
+    return (
+        np.nan,
+        np.nan
+    )
 
 
 # ============================================================
@@ -1023,17 +1447,37 @@ def query_supernova(
     sn_name
 ):
 
+    # --------------------------------------------------------
+    # COORDINATES
+    # --------------------------------------------------------
+
     sn_ra, sn_dec = (
         get_coordinates(
             sn_name
         )
     )
 
+
+    # --------------------------------------------------------
+    # REDSHIFT FROM NED REDSHIFTS TABLE
+    # --------------------------------------------------------
+
     redshift_result = (
         get_supernova_redshift(
             sn_name
         )
     )
+
+    sn_redshift = (
+        redshift_result[
+            "redshift"
+        ]
+    )
+
+
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
 
     problems = []
 
@@ -1048,9 +1492,7 @@ def query_supernova(
         )
 
     if not np.isfinite(
-        redshift_result[
-            "redshift"
-        ]
+        sn_redshift
     ):
 
         problems.append(
@@ -1058,11 +1500,15 @@ def query_supernova(
         )
 
     if problems:
+
         sn_status = ";".join(
             problems
         )
+
     else:
+
         sn_status = "OK"
+
 
     return {
 
@@ -1073,9 +1519,7 @@ def query_supernova(
             sn_dec,
 
         "sn_redshift":
-            redshift_result[
-                "redshift"
-            ],
+            sn_redshift,
 
         "sn_redshift_unc":
             redshift_result[
@@ -1103,18 +1547,27 @@ def query_supernova(
 
 
 # ============================================================
-# QUERY HOST
+# QUERY HOST GALAXY
 # ============================================================
 
 def query_host(
     host_name
 ):
 
+    # --------------------------------------------------------
+    # HOST COORDINATES
+    # --------------------------------------------------------
+
     host_ra, host_dec = (
         get_coordinates(
             host_name
         )
     )
+
+
+    # --------------------------------------------------------
+    # HOST OVERVIEW
+    # --------------------------------------------------------
 
     params = {
         "TARGET":
@@ -1127,6 +1580,7 @@ def query_host(
         host_name
     )
 
+
     if votable is None:
 
         return {
@@ -1136,6 +1590,12 @@ def query_host(
 
             "host_dec":
                 host_dec,
+
+            "host_morphology":
+                "",
+
+            "host_morphology_reference":
+                "",
 
             "mean_distance_mpc":
                 np.nan,
@@ -1165,6 +1625,23 @@ def query_host(
                 "OVERVIEW_QUERY_FAILED"
         }
 
+
+    # ========================================================
+    # MORPHOLOGY
+    # ========================================================
+
+    (
+        host_morphology,
+        host_morphology_reference
+    ) = get_host_morphology(
+        votable
+    )
+
+
+    # ========================================================
+    # DISTANCE
+    # ========================================================
+
     mean_distance = (
         get_mean_distance(
             votable
@@ -1177,15 +1654,22 @@ def query_host(
         )
     )
 
+
+    # Prefer Mean Distance
     if np.isfinite(
         mean_distance
     ):
 
-        distance_mpc = mean_distance
+        distance_mpc = (
+            mean_distance
+        )
+
         distance_method = (
             "Mean Distance"
         )
 
+
+    # Otherwise CMB Hubble Distance
     elif np.isfinite(
         hubble_distance
     ):
@@ -1198,6 +1682,7 @@ def query_host(
             "Hubble Distance (CMB)"
         )
 
+
     else:
 
         distance_mpc = np.nan
@@ -1205,6 +1690,11 @@ def query_host(
         distance_method = (
             "No distance available"
         )
+
+
+    # ========================================================
+    # DIAMETER
+    # ========================================================
 
     diameter_kpc = (
         get_physical_diameter(
@@ -1221,16 +1711,25 @@ def query_host(
     diameter_bandpass = (
         get_text_exact(
             votable,
-            ["Bandpass"]
+            [
+                "Bandpass"
+            ]
         )
     )
 
     diameter_reference = (
         get_text_exact(
             votable,
-            ["Diameter Refcode"]
+            [
+                "Diameter Refcode"
+            ]
         )
     )
+
+
+    # ========================================================
+    # STATUS
+    # ========================================================
 
     problems = []
 
@@ -1260,12 +1759,17 @@ def query_host(
             "NO_DIAMETER"
         )
 
+
     if problems:
+
         host_status = ";".join(
             problems
         )
+
     else:
+
         host_status = "OK"
+
 
     return {
 
@@ -1274,6 +1778,12 @@ def query_host(
 
         "host_dec":
             host_dec,
+
+        "host_morphology":
+            host_morphology,
+
+        "host_morphology_reference":
+            host_morphology_reference,
 
         "mean_distance_mpc":
             mean_distance,
@@ -1305,55 +1815,61 @@ def query_host(
 
 
 # ============================================================
-# READ AND CLEAN INPUT CSV
+# READ INPUT CSV
 # ============================================================
 
+print()
 print("Reading CSV...")
 
 df = pd.read_csv(
     INPUT_CSV
 )
 
+
+# ============================================================
+# CHECK REQUIRED COLUMNS
+# ============================================================
+
 if SN_NAME_COL not in df.columns:
+
     raise ValueError(
         "Missing column: sn_name"
     )
 
+
 if HOST_NAME_COL not in df.columns:
+
     raise ValueError(
         "Missing column: host_name"
     )
 
 
-# Strip spaces
+# ============================================================
+# CLEAN SN AND HOST NAMES
+# ============================================================
+
 df[SN_NAME_COL] = (
     df[SN_NAME_COL]
     .astype("string")
     .str.strip()
+    .replace("", pd.NA)
 )
+
 
 df[HOST_NAME_COL] = (
     df[HOST_NAME_COL]
     .astype("string")
     .str.strip()
-)
-
-
-# Turn blank strings into missing values
-df[SN_NAME_COL] = (
-    df[SN_NAME_COL]
-    .replace("", pd.NA)
-)
-
-df[HOST_NAME_COL] = (
-    df[HOST_NAME_COL]
     .replace("", pd.NA)
 )
 
 
-# IMPORTANT:
-# Remove blank rows.
-# Keep only rows that have BOTH SN and host.
+# ============================================================
+# REMOVE BLANK / INCOMPLETE ROWS
+#
+# This is what prevents the empty lines in Excel.
+# ============================================================
+
 df = df.dropna(
     subset=[
         SN_NAME_COL,
@@ -1362,10 +1878,10 @@ df = df.dropna(
 ).copy()
 
 
-# Reset rows so there are no gaps
 df = df.reset_index(
     drop=True
 )
+
 
 print(
     "Valid SN-host rows:",
@@ -1383,6 +1899,7 @@ unique_sne = (
     .unique()
 )
 
+
 unique_hosts = (
     df[HOST_NAME_COL]
     .dropna()
@@ -1398,8 +1915,17 @@ sn_cache = {}
 
 print()
 print(
+    "===================================="
+)
+
+print(
     "QUERYING SUPERNOVAE"
 )
+
+print(
+    "===================================="
+)
+
 
 for i, sn_name in enumerate(
     unique_sne,
@@ -1416,32 +1942,36 @@ for i, sn_name in enumerate(
         sn_name
     )
 
+
     result = query_supernova(
         sn_name
     )
+
 
     sn_cache[
         sn_name
     ] = result
 
+
     print(
         "RA:",
-        result[
-            "sn_ra"
-        ]
+        result["sn_ra"]
     )
 
     print(
         "Dec:",
-        result[
-            "sn_dec"
-        ]
+        result["sn_dec"]
     )
 
     print(
         "Redshift:",
+        result["sn_redshift"]
+    )
+
+    print(
+        "Redshift selection:",
         result[
-            "sn_redshift"
+            "sn_redshift_selection"
         ]
     )
 
@@ -1453,18 +1983,10 @@ for i, sn_name in enumerate(
     )
 
     print(
-        "Reference:",
-        result[
-            "sn_redshift_reference"
-        ]
+        "Status:",
+        result["sn_status"]
     )
 
-    print(
-        "Status:",
-        result[
-            "sn_status"
-        ]
-    )
 
     time.sleep(
         QUERY_DELAY
@@ -1479,8 +2001,17 @@ host_cache = {}
 
 print()
 print(
+    "===================================="
+)
+
+print(
     "QUERYING HOST GALAXIES"
 )
+
+print(
+    "===================================="
+)
+
 
 for i, host_name in enumerate(
     unique_hosts,
@@ -1497,13 +2028,33 @@ for i, host_name in enumerate(
         host_name
     )
 
+
     result = query_host(
         host_name
     )
 
+
     host_cache[
         host_name
     ] = result
+
+
+    print(
+        "RA:",
+        result["host_ra"]
+    )
+
+    print(
+        "Dec:",
+        result["host_dec"]
+    )
+
+    print(
+        "Morphology:",
+        result[
+            "host_morphology"
+        ]
+    )
 
     print(
         "Distance:",
@@ -1514,7 +2065,7 @@ for i, host_name in enumerate(
     )
 
     print(
-        "Distance method:",
+        "Distance Method:",
         result[
             "distance_method"
         ]
@@ -1535,16 +2086,18 @@ for i, host_name in enumerate(
         ]
     )
 
+
     time.sleep(
         QUERY_DELAY
     )
 
 
 # ============================================================
-# BUILD OUTPUT
+# BUILD OUTPUT TABLE
 # ============================================================
 
 output_rows = []
+
 
 for _, row in df.iterrows():
 
@@ -1556,8 +2109,15 @@ for _, row in df.iterrows():
         HOST_NAME_COL
     ]
 
+
+    # ========================================================
+    # SN RESULT
+    # ========================================================
+
     sn_result = sn_cache.get(
+
         sn_name,
+
         {
             "sn_ra":
                 np.nan,
@@ -1585,14 +2145,27 @@ for _, row in df.iterrows():
         }
     )
 
+
+    # ========================================================
+    # HOST RESULT
+    # ========================================================
+
     host_result = host_cache.get(
+
         host_name,
+
         {
             "host_ra":
                 np.nan,
 
             "host_dec":
                 np.nan,
+
+            "host_morphology":
+                "",
+
+            "host_morphology_reference":
+                "",
 
             "mean_distance_mpc":
                 np.nan,
@@ -1623,39 +2196,52 @@ for _, row in df.iterrows():
         }
     )
 
-    sn_ra = sn_result[
-        "sn_ra"
-    ]
 
-    sn_dec = sn_result[
-        "sn_dec"
-    ]
+    # ========================================================
+    # VALUES
+    # ========================================================
 
-    host_ra = host_result[
-        "host_ra"
-    ]
+    sn_ra = (
+        sn_result["sn_ra"]
+    )
 
-    host_dec = host_result[
-        "host_dec"
-    ]
+    sn_dec = (
+        sn_result["sn_dec"]
+    )
 
-    distance_mpc = host_result[
-        "distance_mpc"
-    ]
 
-    diameter_kpc = host_result[
-        "diameter_kpc"
-    ]
+    host_ra = (
+        host_result["host_ra"]
+    )
+
+    host_dec = (
+        host_result["host_dec"]
+    )
+
+
+    distance_mpc = (
+        host_result[
+            "distance_mpc"
+        ]
+    )
+
+
+    diameter_kpc = (
+        host_result[
+            "diameter_kpc"
+        ]
+    )
 
 
     # ========================================================
-    # CALCULATE SN-HOST OFFSET
+    # SN-HOST OFFSET
     # ========================================================
 
     offset_arcsec = np.nan
     offset_kpc = np.nan
 
     problems = []
+
 
     coordinates_ok = (
         np.isfinite(sn_ra)
@@ -1667,6 +2253,7 @@ for _, row in df.iterrows():
         np.isfinite(host_dec)
     )
 
+
     if coordinates_ok:
 
         try:
@@ -1677,11 +2264,13 @@ for _, row in df.iterrows():
                 frame="icrs"
             )
 
+
             host_coord = SkyCoord(
                 ra=host_ra * u.deg,
                 dec=host_dec * u.deg,
                 frame="icrs"
             )
+
 
             separation = (
                 sn_coord.separation(
@@ -1689,11 +2278,13 @@ for _, row in df.iterrows():
                 )
             )
 
+
             offset_arcsec = (
                 separation.to_value(
                     u.arcsec
                 )
             )
+
 
             if np.isfinite(
                 distance_mpc
@@ -1713,12 +2304,14 @@ for _, row in df.iterrows():
                     "NO_DISTANCE_FOR_OFFSET"
                 )
 
+
         except Exception as error:
 
             problems.append(
                 "OFFSET_ERROR: "
                 + str(error)
             )
+
 
     else:
 
@@ -1774,7 +2367,7 @@ for _, row in df.iterrows():
 
 
     # ========================================================
-    # STATUS
+    # FINAL STATUS
     # ========================================================
 
     if (
@@ -1788,6 +2381,7 @@ for _, row in df.iterrows():
             ]
         )
 
+
     if (
         host_result[
             "host_status"
@@ -1800,6 +2394,7 @@ for _, row in df.iterrows():
                 "host_status"
             ]
         )
+
 
     if problems:
 
@@ -1815,14 +2410,14 @@ for _, row in df.iterrows():
 
 
     # ========================================================
-    # CLEAN, ORGANIZED OUTPUT ORDER
+    # ORGANIZED OUTPUT
     # ========================================================
 
     output_rows.append({
 
-        # ------------------------
+        # ----------------------------------------------------
         # SUPERNOVA
-        # ------------------------
+        # ----------------------------------------------------
 
         "sn_name":
             sn_name,
@@ -1854,9 +2449,9 @@ for _, row in df.iterrows():
             ],
 
 
-        # ------------------------
-        # HOST
-        # ------------------------
+        # ----------------------------------------------------
+        # HOST GALAXY
+        # ----------------------------------------------------
 
         "host_name":
             host_name,
@@ -1867,10 +2462,15 @@ for _, row in df.iterrows():
         "host_dec_deg":
             host_dec,
 
+        "host_morphology":
+            host_result[
+                "host_morphology"
+            ],
 
-        # ------------------------
+
+        # ----------------------------------------------------
         # HOST DISTANCE
-        # ------------------------
+        # ----------------------------------------------------
 
         "distance_mpc":
             distance_mpc,
@@ -1881,9 +2481,9 @@ for _, row in df.iterrows():
             ],
 
 
-        # ------------------------
+        # ----------------------------------------------------
         # HOST SIZE
-        # ------------------------
+        # ----------------------------------------------------
 
         "diameter_kpc":
             diameter_kpc,
@@ -1892,9 +2492,9 @@ for _, row in df.iterrows():
             galaxy_radius_kpc,
 
 
-        # ------------------------
+        # ----------------------------------------------------
         # SN-HOST OFFSET
-        # ------------------------
+        # ----------------------------------------------------
 
         "offset_arcsec":
             offset_arcsec,
@@ -1906,9 +2506,14 @@ for _, row in df.iterrows():
             offset_over_galaxy_radius,
 
 
-        # ------------------------
-        # EXTRA NED INFORMATION
-        # ------------------------
+        # ----------------------------------------------------
+        # EXTRA NED DATA
+        # ----------------------------------------------------
+
+        "host_morphology_reference":
+            host_result[
+                "host_morphology_reference"
+            ],
 
         "mean_distance_mpc":
             host_result[
@@ -1936,9 +2541,9 @@ for _, row in df.iterrows():
             ],
 
 
-        # ------------------------
+        # ----------------------------------------------------
         # STATUS
-        # ------------------------
+        # ----------------------------------------------------
 
         "sn_status":
             sn_result[
@@ -1956,7 +2561,7 @@ for _, row in df.iterrows():
 
 
 # ============================================================
-# CREATE CLEAN OUTPUT TABLE
+# CREATE OUTPUT DATAFRAME
 # ============================================================
 
 output = pd.DataFrame(
@@ -1964,20 +2569,24 @@ output = pd.DataFrame(
 )
 
 
-# Remove any fully empty rows
+# ============================================================
+# REMOVE COMPLETELY EMPTY ROWS
+# ============================================================
+
 output = output.dropna(
     how="all"
 )
 
 
-# Reset row numbers
 output = output.reset_index(
     drop=True
 )
 
 
 # ============================================================
-# ROUND VALUES FOR CLEAN EXCEL DISPLAY
+# ROUND NUMERIC VALUES
+#
+# This makes Excel much easier to read.
 # ============================================================
 
 rounding = {
@@ -1989,7 +2598,7 @@ rounding = {
         6,
 
     "sn_redshift":
-        6,
+        7,
 
     "sn_redshift_unc":
         8,
@@ -2043,7 +2652,7 @@ for column, decimals in rounding.items():
 
 
 # ============================================================
-# SAVE
+# SAVE CSV
 # ============================================================
 
 output.to_csv(
@@ -2057,7 +2666,17 @@ output.to_csv(
 # ============================================================
 
 print()
-print("FINISHED")
+print(
+    "===================================="
+)
+
+print(
+    "FINISHED"
+)
+
+print(
+    "===================================="
+)
 
 print(
     "Total SN-host rows:",
@@ -2083,6 +2702,20 @@ print(
     output[
         "host_ra_deg"
     ].notna().sum()
+)
+
+print(
+    "Host morphologies found:",
+    (
+        output[
+            "host_morphology"
+        ]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+        .sum()
+    )
 )
 
 print(
@@ -2115,6 +2748,9 @@ print(
 
 print()
 print(
-    "Saved to:",
+    "Saved to:"
+)
+
+print(
     OUTPUT_CSV
 )
