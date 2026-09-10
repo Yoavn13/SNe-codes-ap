@@ -1,5 +1,8 @@
 import io
+import os
 import time
+from datetime import datetime
+
 import requests
 import numpy as np
 import pandas as pd
@@ -10,7 +13,7 @@ from astropy.io.votable import parse
 
 
 # ============================================================
-# FILES
+# FILE LOCATIONS
 # ============================================================
 
 INPUT_CSV = r"C:\Users\amirn\Downloads\supernovae.csv"
@@ -18,6 +21,17 @@ INPUT_CSV = r"C:\Users\amirn\Downloads\supernovae.csv"
 OUTPUT_CSV = (
     r"C:\Users\amirn\Downloads\supernovae_with_ned_data.csv"
 )
+
+
+# These cache files are what allow the script to resume.
+SN_CACHE_CSV = (
+    r"C:\Users\amirn\Downloads\ned_sn_cache.csv"
+)
+
+HOST_CACHE_CSV = (
+    r"C:\Users\amirn\Downloads\ned_host_cache.csv"
+)
+
 
 SN_NAME_COL = "sn_name"
 HOST_NAME_COL = "host_name"
@@ -49,11 +63,22 @@ NED_REDSHIFTS_URL = (
 
 MAX_RETRIES = 5
 
-# Time between normal object queries
-QUERY_DELAY = 1.0
-
-# Longer timeout because NED can occasionally be slow
 REQUEST_TIMEOUT = 90
+
+# Small delay to avoid hitting NED too aggressively.
+QUERY_DELAY = 0.5
+
+
+# ============================================================
+# CACHE BEHAVIOR
+# ============================================================
+
+# False:
+# use existing cached successful results.
+#
+# True:
+# ignore all cache files and start NED querying from scratch.
+FORCE_REFRESH = False
 
 
 # ============================================================
@@ -145,13 +170,55 @@ def bool_value(value):
 
 
 # ============================================================
+# TIME DISPLAY
+# ============================================================
+
+def format_seconds(seconds):
+
+    if not np.isfinite(seconds):
+        return "unknown"
+
+    seconds = int(max(0, seconds))
+
+    hours = seconds // 3600
+
+    minutes = (
+        seconds % 3600
+    ) // 60
+
+    remaining_seconds = (
+        seconds % 60
+    )
+
+    if hours > 0:
+
+        return (
+            f"{hours}h "
+            f"{minutes}m "
+            f"{remaining_seconds}s"
+        )
+
+    if minutes > 0:
+
+        return (
+            f"{minutes}m "
+            f"{remaining_seconds}s"
+        )
+
+    return (
+        f"{remaining_seconds}s"
+    )
+
+
+# ============================================================
 # NED REQUEST
 # ============================================================
 
 def request_votable(
     url,
     params,
-    object_name
+    object_name,
+    request_type
 ):
 
     for attempt in range(
@@ -169,17 +236,21 @@ def request_votable(
 
             response.raise_for_status()
 
-            return parse(
+            votable = parse(
                 io.BytesIO(
                     response.content
                 )
             )
 
+            return votable, True
+
+
         except Exception as error:
 
             print()
+
             print(
-                "NED query failed:",
+                f"NED {request_type} query failed:",
                 object_name
             )
 
@@ -195,12 +266,16 @@ def request_votable(
                 error
             )
 
+
             if attempt < MAX_RETRIES:
 
-                # Progressive waiting:
-                # 5, 10, 20, 40 seconds
-                wait_time = 5 * (
-                    2 ** (attempt - 1)
+                wait_time = min(
+                    5 * (
+                        2 ** (
+                            attempt - 1
+                        )
+                    ),
+                    60
                 )
 
                 print(
@@ -213,16 +288,19 @@ def request_votable(
                     wait_time
                 )
 
+
+    print()
+
     print(
-        "Giving up on this NED request:",
+        "All attempts failed for:",
         object_name
     )
 
-    return None
+    return None, False
 
 
 # ============================================================
-# READ ALL VOTABLE FIELDS
+# VOTABLE FIELD RECORDS
 # ============================================================
 
 def all_field_records(votable):
@@ -231,6 +309,7 @@ def all_field_records(votable):
 
     if votable is None:
         return records
+
 
     for resource in votable.resources:
 
@@ -245,11 +324,13 @@ def all_field_records(votable):
             except Exception:
                 continue
 
+
             if table is None:
                 continue
 
             if len(table) == 0:
                 continue
+
 
             for index, field in enumerate(
                 table_element.fields
@@ -259,6 +340,7 @@ def all_field_records(votable):
                     table.colnames
                 ):
                     continue
+
 
                 records.append({
 
@@ -289,16 +371,11 @@ def all_field_records(votable):
                         )
                 })
 
+
     return records
 
 
-# ============================================================
-# VALUES FROM VOTABLE FIELD
-# ============================================================
-
-def first_number_from_record(
-    record
-):
+def first_number_from_record(record):
 
     table = record["table"]
     column = record["column"]
@@ -315,9 +392,7 @@ def first_number_from_record(
     return np.nan
 
 
-def first_text_from_record(
-    record
-):
+def first_text_from_record(record):
 
     table = record["table"]
     column = record["column"]
@@ -348,6 +423,7 @@ def get_number_exact(
         for label in labels
     ]
 
+
     for record in all_field_records(
         votable
     ):
@@ -359,6 +435,7 @@ def get_number_exact(
         field_id = normalize(
             record["id"]
         )
+
 
         for target in targets:
 
@@ -377,6 +454,7 @@ def get_number_exact(
                 if np.isfinite(value):
                     return value
 
+
     return np.nan
 
 
@@ -390,6 +468,7 @@ def get_text_exact(
         for label in labels
     ]
 
+
     for record in all_field_records(
         votable
     ):
@@ -401,6 +480,7 @@ def get_text_exact(
         field_id = normalize(
             record["id"]
         )
+
 
         for target in targets:
 
@@ -419,11 +499,12 @@ def get_text_exact(
                 if value:
                     return value
 
+
     return ""
 
 
 # ============================================================
-# FIND COLUMN IN ONE VOTABLE TABLE
+# FIND COLUMN IN NED TABLE
 # ============================================================
 
 def find_table_column(
@@ -437,6 +518,7 @@ def find_table_column(
         for label in labels
     ]
 
+
     for index, field in enumerate(
         table_element.fields
     ):
@@ -446,7 +528,8 @@ def find_table_column(
         ):
             continue
 
-        possible_names = [
+
+        names = [
 
             normalize(
                 field.name or ""
@@ -457,19 +540,21 @@ def find_table_column(
             )
         ]
 
+
         for target in targets:
 
-            if target in possible_names:
+            if target in names:
 
                 return (
                     table.colnames[index]
                 )
 
+
     return None
 
 
 # ============================================================
-# SUPERNOVA REDSHIFTS FROM NED REDSHIFTS TABLE
+# SUPERNOVA REDSHIFT TABLE
 # ============================================================
 
 def get_ned_redshift_measurements(
@@ -481,16 +566,37 @@ def get_ned_redshift_measurements(
             str(sn_name).strip()
     }
 
-    votable = request_votable(
+
+    votable, query_success = request_votable(
+
         NED_REDSHIFTS_URL,
+
         params,
-        sn_name
+
+        sn_name,
+
+        "redshift"
     )
+
 
     measurements = []
 
+
+    if not query_success:
+
+        return (
+            measurements,
+            False
+        )
+
+
     if votable is None:
-        return measurements
+
+        return (
+            measurements,
+            True
+        )
+
 
     for resource in votable.resources:
 
@@ -505,6 +611,7 @@ def get_ned_redshift_measurements(
             except Exception:
                 continue
 
+
             if (
                 table is None
                 or
@@ -512,10 +619,6 @@ def get_ned_redshift_measurements(
             ):
                 continue
 
-
-            # ------------------------------------------------
-            # REDSHIFT
-            # ------------------------------------------------
 
             z_col = find_table_column(
                 table_element,
@@ -527,10 +630,6 @@ def get_ned_redshift_measurements(
             )
 
 
-            # ------------------------------------------------
-            # UNCERTAINTY
-            # ------------------------------------------------
-
             unc_col = find_table_column(
                 table_element,
                 table,
@@ -541,79 +640,41 @@ def get_ned_redshift_measurements(
             )
 
 
-            # ------------------------------------------------
-            # TECHNIQUE
-            # ------------------------------------------------
-
-            technique_col = (
-                find_table_column(
-                    table_element,
-                    table,
-                    [
-                        "Technique"
-                    ]
-                )
+            technique_col = find_table_column(
+                table_element,
+                table,
+                ["Technique"]
             )
 
 
-            # ------------------------------------------------
-            # METHOD
-            # ------------------------------------------------
-
-            method_col = (
-                find_table_column(
-                    table_element,
-                    table,
-                    [
-                        "Method"
-                    ]
-                )
+            method_col = find_table_column(
+                table_element,
+                table,
+                ["Method"]
             )
 
 
-            # ------------------------------------------------
-            # QUALITY
-            # ------------------------------------------------
-
-            quality_col = (
-                find_table_column(
-                    table_element,
-                    table,
-                    [
-                        "Quality Flag"
-                    ]
-                )
+            quality_col = find_table_column(
+                table_element,
+                table,
+                ["Quality Flag"]
             )
 
 
-            # ------------------------------------------------
-            # REFERENCE
-            # ------------------------------------------------
-
-            reference_col = (
-                find_table_column(
-                    table_element,
-                    table,
-                    [
-                        "Reference",
-                        "Refcode"
-                    ]
-                )
+            reference_col = find_table_column(
+                table_element,
+                table,
+                [
+                    "Reference",
+                    "Refcode"
+                ]
             )
 
 
-            # ------------------------------------------------
-            # FIDUCIAL FLAG
-            # ------------------------------------------------
-
-            fiducial_col = (
-                find_table_column(
-                    table_element,
-                    table,
-                    [
-                        "Fiducial"
-                    ]
-                )
+            fiducial_col = find_table_column(
+                table_element,
+                table,
+                ["Fiducial"]
             )
 
 
@@ -621,15 +682,12 @@ def get_ned_redshift_measurements(
                 continue
 
 
-            # ------------------------------------------------
-            # READ EVERY REDSHIFT MEASUREMENT
-            # ------------------------------------------------
-
             for row in table:
 
                 redshift = numeric_value(
                     row[z_col]
                 )
+
 
                 if not np.isfinite(
                     redshift
@@ -667,8 +725,12 @@ def get_ned_redshift_measurements(
 
                 if method_col is not None:
 
-                    method = text_value(
-                        row[method_col]
+                    method = (
+                        text_value(
+                            row[
+                                method_col
+                            ]
+                        )
                     )
 
                 else:
@@ -678,8 +740,12 @@ def get_ned_redshift_measurements(
 
                 if quality_col is not None:
 
-                    quality = text_value(
-                        row[quality_col]
+                    quality = (
+                        text_value(
+                            row[
+                                quality_col
+                            ]
+                        )
                     )
 
                 else:
@@ -741,11 +807,15 @@ def get_ned_redshift_measurements(
                         fiducial
                 })
 
-    return measurements
+
+    return (
+        measurements,
+        True
+    )
 
 
 # ============================================================
-# CHOOSE BEST SN REDSHIFT
+# SELECT NED SN REDSHIFT
 # ============================================================
 
 def select_ned_redshift(
@@ -756,10 +826,10 @@ def select_ned_redshift(
         return None
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # FIRST CHOICE:
-    # NED FIDUCIAL REDSHIFT
-    # ========================================================
+    # NED'S FIDUCIAL REDSHIFT
+    # --------------------------------------------------------
 
     fiducial_rows = [
 
@@ -773,35 +843,13 @@ def select_ned_redshift(
         ]
     ]
 
+
     if fiducial_rows:
 
-        # Prefer fiducial without a questionable flag
-        good_fiducial = [
-
-            measurement
-
-            for measurement
-            in fiducial_rows
-
-            if "?" not in
-            measurement[
-                "quality"
-            ]
-        ]
-
-        if good_fiducial:
-
-            chosen = (
-                good_fiducial[0]
-                .copy()
-            )
-
-        else:
-
-            chosen = (
-                fiducial_rows[0]
-                .copy()
-            )
+        chosen = (
+            fiducial_rows[0]
+            .copy()
+        )
 
         chosen[
             "selection"
@@ -810,9 +858,9 @@ def select_ned_redshift(
         return chosen
 
 
-    # ========================================================
-    # OTHERWISE RANK AVAILABLE MEASUREMENTS
-    # ========================================================
+    # --------------------------------------------------------
+    # FALLBACK TECHNIQUE RANKING
+    # --------------------------------------------------------
 
     def technique_rank(text):
 
@@ -822,7 +870,7 @@ def select_ned_redshift(
             .upper()
         )
 
-        # Spectroscopic first
+
         if (
             "SPEC" in text
             or
@@ -830,19 +878,24 @@ def select_ned_redshift(
         ):
             return 0
 
-        # Photometric next
+
         if "PHOT" in text:
             return 1
 
-        # Multiple / mixed
-        if "MULT" in text:
+
+        if "MOD" in text:
             return 2
 
-        # Model
-        if "MOD" in text:
+
+        if "MULT" in text:
             return 3
 
-        return 4
+
+        if "INFD" in text:
+            return 4
+
+
+        return 5
 
 
     def measurement_rank(
@@ -857,7 +910,8 @@ def select_ned_redshift(
             .upper()
         )
 
-        questionable = (
+
+        bad_quality = (
             1
             if (
                 "?" in quality
@@ -867,6 +921,7 @@ def select_ned_redshift(
             else 0
         )
 
+
         technique = (
             technique_rank(
                 measurement[
@@ -875,27 +930,34 @@ def select_ned_redshift(
             )
         )
 
+
         uncertainty = (
             measurement[
                 "uncertainty"
             ]
         )
 
+
         if np.isfinite(
             uncertainty
         ):
 
-            missing_uncertainty = 0
+            uncertainty_missing = 0
 
         else:
 
-            missing_uncertainty = 1
+            uncertainty_missing = 1
             uncertainty = np.inf
 
+
         return (
-            questionable,
+
+            bad_quality,
+
             technique,
-            missing_uncertainty,
+
+            uncertainty_missing,
+
             uncertainty
         )
 
@@ -905,32 +967,70 @@ def select_ned_redshift(
         key=measurement_rank
     )[0].copy()
 
+
     chosen[
         "selection"
     ] = "Best NED measurement"
+
 
     return chosen
 
 
 # ============================================================
-# FINAL SN REDSHIFT
+# GET FINAL SN REDSHIFT
 # ============================================================
 
 def get_supernova_redshift(
     sn_name
 ):
 
-    measurements = (
-        get_ned_redshift_measurements(
-            sn_name
-        )
+    (
+        measurements,
+        query_success
+    ) = get_ned_redshift_measurements(
+        sn_name
     )
+
+
+    if not query_success:
+
+        return {
+
+            "redshift":
+                np.nan,
+
+            "uncertainty":
+                np.nan,
+
+            "technique":
+                "",
+
+            "method":
+                "",
+
+            "quality":
+                "",
+
+            "reference":
+                "",
+
+            "selection":
+                "NED query failed",
+
+            "measurement_count":
+                0,
+
+            "query_success":
+                False
+        }
+
 
     selected = (
         select_ned_redshift(
             measurements
         )
     )
+
 
     if selected is None:
 
@@ -945,12 +1045,36 @@ def get_supernova_redshift(
             "technique":
                 "",
 
+            "method":
+                "",
+
+            "quality":
+                "",
+
             "reference":
                 "",
 
             "selection":
-                "No NED redshift"
+                "No NED redshift",
+
+            "measurement_count":
+                0,
+
+            "query_success":
+                True
         }
+
+
+    selected[
+        "measurement_count"
+    ] = len(
+        measurements
+    )
+
+    selected[
+        "query_success"
+    ] = True
+
 
     return selected
 
@@ -963,27 +1087,13 @@ def get_host_morphology(
     votable
 ):
 
-    if votable is None:
-
-        return (
-            "",
-            ""
-        )
-
-
-    # NED OverviewOfObject officially provides:
-    #
-    # Morphology
-    # Morphology Refcode
-
-    morphology = (
-        get_text_exact(
-            votable,
-            [
-                "Morphology"
-            ]
-        )
+    morphology = get_text_exact(
+        votable,
+        [
+            "Morphology"
+        ]
     )
+
 
     morphology_reference = (
         get_text_exact(
@@ -995,17 +1105,14 @@ def get_host_morphology(
     )
 
 
-    # --------------------------------------------------------
-    # FALLBACK IF FIELD NAME VARIES
-    # --------------------------------------------------------
-
+    # Semantic fallback
     if not morphology:
 
         for record in all_field_records(
             votable
         ):
 
-            field_name = normalize(
+            name = normalize(
                 record["name"]
             )
 
@@ -1017,31 +1124,39 @@ def get_host_morphology(
                 record["description"]
             )
 
+
             looks_like_morphology = (
-                field_name
-                == "morphology"
+
+                name == "morphology"
+
                 or
-                field_id
-                == "morphology"
+
+                field_id == "morphology"
+
                 or
+
+                "morphologicalclassification"
+                in description
+
+                or
+
                 (
-                    "optical" in description
-                    and
                     "morpholog" in description
+                    and
+                    "optical" in description
                 )
             )
 
+
             if looks_like_morphology:
 
-                value = (
+                morphology = (
                     first_text_from_record(
                         record
                     )
                 )
 
-                if value:
-
-                    morphology = value
+                if morphology:
                     break
 
 
@@ -1066,6 +1181,7 @@ def get_mean_distance(
         ]
     )
 
+
     if np.isfinite(value):
         return value
 
@@ -1086,26 +1202,22 @@ def get_mean_distance(
             record["unit"]
         )
 
-        looks_correct = (
+
+        if (
             "mpc" in unit
             and
             (
-                "meandistance"
-                in name
+                "meandistance" in name
 
                 or
 
                 (
-                    "mean"
-                    in description
+                    "mean" in description
                     and
-                    "distance"
-                    in description
+                    "distance" in description
                 )
             )
-        )
-
-        if looks_correct:
+        ):
 
             value = (
                 first_number_from_record(
@@ -1115,6 +1227,7 @@ def get_mean_distance(
 
             if np.isfinite(value):
                 return value
+
 
     return np.nan
 
@@ -1135,6 +1248,7 @@ def get_hubble_distance(
         ]
     )
 
+
     if np.isfinite(value):
         return value
 
@@ -1155,12 +1269,12 @@ def get_hubble_distance(
             record["unit"]
         )
 
-        looks_correct = (
+
+        if (
             "mpc" in unit
             and
             (
-                "d3kcmb"
-                in name
+                "d3kcmb" in name
 
                 or
 
@@ -1172,16 +1286,11 @@ def get_hubble_distance(
                 (
                     "distance"
                     in description
-
                     and
-
-                    "cosmicmicrowavebackground"
-                    in description
+                    "cmb" in description
                 )
             )
-        )
-
-        if looks_correct:
+        ):
 
             value = (
                 first_number_from_record(
@@ -1192,11 +1301,12 @@ def get_hubble_distance(
             if np.isfinite(value):
                 return value
 
+
     return np.nan
 
 
 # ============================================================
-# HOST PHYSICAL DIAMETER
+# PHYSICAL DIAMETER
 # ============================================================
 
 def get_physical_diameter(
@@ -1211,6 +1321,7 @@ def get_physical_diameter(
         ]
     )
 
+
     if np.isfinite(value):
         return value
 
@@ -1231,7 +1342,8 @@ def get_physical_diameter(
             record["unit"]
         )
 
-        looks_correct = (
+
+        if (
             "kpc" in unit
 
             and
@@ -1252,9 +1364,7 @@ def get_physical_diameter(
                     in description
                 )
             )
-        )
-
-        if looks_correct:
+        ):
 
             value = (
                 first_number_from_record(
@@ -1265,11 +1375,12 @@ def get_physical_diameter(
             if np.isfinite(value):
                 return value
 
+
     return np.nan
 
 
 # ============================================================
-# HOST ANGULAR DIAMETER
+# ANGULAR DIAMETER
 # ============================================================
 
 def get_angular_diameter(
@@ -1282,6 +1393,7 @@ def get_angular_diameter(
             "Major Axis"
         ]
     )
+
 
     if np.isfinite(value):
         return value
@@ -1303,7 +1415,8 @@ def get_angular_diameter(
             record["unit"]
         )
 
-        looks_correct = (
+
+        if (
             "arcsec" in unit
 
             and
@@ -1316,9 +1429,7 @@ def get_angular_diameter(
                 "majoraxisdiameter"
                 in description
             )
-        )
-
-        if looks_correct:
+        ):
 
             value = (
                 first_number_from_record(
@@ -1329,11 +1440,12 @@ def get_angular_diameter(
             if np.isfinite(value):
                 return value
 
+
     return np.nan
 
 
 # ============================================================
-# COORDINATES
+# NED COORDINATES
 # ============================================================
 
 def get_coordinates(
@@ -1349,22 +1461,39 @@ def get_coordinates(
             0
     }
 
-    votable = request_votable(
+
+    votable, query_success = request_votable(
+
         NED_CONE_URL,
+
         params,
-        object_name
+
+        object_name,
+
+        "coordinate"
     )
+
+
+    if not query_success:
+
+        return (
+            np.nan,
+            np.nan,
+            False
+        )
+
 
     if votable is None:
 
         return (
             np.nan,
-            np.nan
+            np.nan,
+            True
         )
 
 
     # --------------------------------------------------------
-    # DECIMAL DEGREES
+    # DECIMAL DEGREE VALUES
     # --------------------------------------------------------
 
     ra = get_number_exact(
@@ -1372,10 +1501,12 @@ def get_coordinates(
         ["RA"]
     )
 
+
     dec = get_number_exact(
         votable,
         ["Dec"]
     )
+
 
     if (
         np.isfinite(ra)
@@ -1385,7 +1516,8 @@ def get_coordinates(
 
         return (
             ra,
-            dec
+            dec,
+            True
         )
 
 
@@ -1400,12 +1532,14 @@ def get_coordinates(
         ]
     )
 
+
     dec_text = get_text_exact(
         votable,
         [
             "Dec-s"
         ]
     )
+
 
     if (
         ra_text
@@ -1415,7 +1549,7 @@ def get_coordinates(
 
         try:
 
-            coord = SkyCoord(
+            coordinate = SkyCoord(
                 ra_text,
                 dec_text,
                 unit=(
@@ -1425,42 +1559,44 @@ def get_coordinates(
                 frame="icrs"
             )
 
+
             return (
-                coord.ra.deg,
-                coord.dec.deg
+
+                coordinate.ra.deg,
+
+                coordinate.dec.deg,
+
+                True
             )
+
 
         except Exception:
             pass
 
+
     return (
         np.nan,
-        np.nan
+        np.nan,
+        True
     )
 
 
 # ============================================================
-# QUERY SUPERNOVA
+# QUERY ONE SUPERNOVA
 # ============================================================
 
 def query_supernova(
     sn_name
 ):
 
-    # --------------------------------------------------------
-    # COORDINATES
-    # --------------------------------------------------------
-
-    sn_ra, sn_dec = (
-        get_coordinates(
-            sn_name
-        )
+    (
+        sn_ra,
+        sn_dec,
+        coordinate_query_success
+    ) = get_coordinates(
+        sn_name
     )
 
-
-    # --------------------------------------------------------
-    # REDSHIFT FROM NED REDSHIFTS TABLE
-    # --------------------------------------------------------
 
     redshift_result = (
         get_supernova_redshift(
@@ -1468,20 +1604,32 @@ def query_supernova(
         )
     )
 
-    sn_redshift = (
+
+    redshift_query_success = (
         redshift_result[
-            "redshift"
+            "query_success"
         ]
     )
 
 
-    # --------------------------------------------------------
-    # STATUS
-    # --------------------------------------------------------
+    # Only cache if both NED requests actually responded.
+    cache_complete = (
+        coordinate_query_success
+        and
+        redshift_query_success
+    )
+
 
     problems = []
 
-    if not (
+
+    if not coordinate_query_success:
+
+        problems.append(
+            "SN_COORDINATE_QUERY_FAILED"
+        )
+
+    elif not (
         np.isfinite(sn_ra)
         and
         np.isfinite(sn_dec)
@@ -1491,13 +1639,23 @@ def query_supernova(
             "NO_SN_COORDINATES"
         )
 
-    if not np.isfinite(
-        sn_redshift
+
+    if not redshift_query_success:
+
+        problems.append(
+            "SN_REDSHIFT_QUERY_FAILED"
+        )
+
+    elif not np.isfinite(
+        redshift_result[
+            "redshift"
+        ]
     ):
 
         problems.append(
             "NO_SN_REDSHIFT"
         )
+
 
     if problems:
 
@@ -1512,6 +1670,9 @@ def query_supernova(
 
     return {
 
+        "sn_name":
+            sn_name,
+
         "sn_ra":
             sn_ra,
 
@@ -1519,7 +1680,9 @@ def query_supernova(
             sn_dec,
 
         "sn_redshift":
-            sn_redshift,
+            redshift_result[
+                "redshift"
+            ],
 
         "sn_redshift_unc":
             redshift_result[
@@ -1542,120 +1705,135 @@ def query_supernova(
             ],
 
         "sn_status":
-            sn_status
+            sn_status,
+
+        "cache_complete":
+            cache_complete
     }
 
 
 # ============================================================
-# QUERY HOST GALAXY
+# QUERY ONE HOST GALAXY
 # ============================================================
 
 def query_host(
     host_name
 ):
 
-    # --------------------------------------------------------
-    # HOST COORDINATES
-    # --------------------------------------------------------
-
-    host_ra, host_dec = (
-        get_coordinates(
-            host_name
-        )
-    )
-
-
-    # --------------------------------------------------------
-    # HOST OVERVIEW
-    # --------------------------------------------------------
-
-    params = {
-        "TARGET":
-            str(host_name).strip()
-    }
-
-    votable = request_votable(
-        NED_OVERVIEW_URL,
-        params,
+    (
+        host_ra,
+        host_dec,
+        coordinate_query_success
+    ) = get_coordinates(
         host_name
     )
 
 
-    if votable is None:
+    params = {
 
-        return {
+        "TARGET":
+            str(host_name).strip()
+    }
 
-            "host_ra":
-                host_ra,
-
-            "host_dec":
-                host_dec,
-
-            "host_morphology":
-                "",
-
-            "host_morphology_reference":
-                "",
-
-            "mean_distance_mpc":
-                np.nan,
-
-            "hubble_distance_mpc":
-                np.nan,
-
-            "distance_mpc":
-                np.nan,
-
-            "distance_method":
-                "NED overview failed",
-
-            "diameter_kpc":
-                np.nan,
-
-            "diameter_arcsec":
-                np.nan,
-
-            "diameter_bandpass":
-                "",
-
-            "diameter_reference":
-                "",
-
-            "host_status":
-                "OVERVIEW_QUERY_FAILED"
-        }
-
-
-    # ========================================================
-    # MORPHOLOGY
-    # ========================================================
 
     (
-        host_morphology,
-        host_morphology_reference
-    ) = get_host_morphology(
-        votable
+        overview_votable,
+        overview_query_success
+    ) = request_votable(
+
+        NED_OVERVIEW_URL,
+
+        params,
+
+        host_name,
+
+        "host overview"
     )
 
 
-    # ========================================================
-    # DISTANCE
-    # ========================================================
+    # Only cache when both required queries answered.
+    cache_complete = (
+        coordinate_query_success
+        and
+        overview_query_success
+    )
 
-    mean_distance = (
-        get_mean_distance(
-            votable
+
+    if overview_query_success:
+
+        (
+            host_morphology,
+            host_morphology_reference
+        ) = get_host_morphology(
+            overview_votable
         )
-    )
 
-    hubble_distance = (
-        get_hubble_distance(
-            votable
+
+        mean_distance = (
+            get_mean_distance(
+                overview_votable
+            )
         )
-    )
 
 
-    # Prefer Mean Distance
+        hubble_distance = (
+            get_hubble_distance(
+                overview_votable
+            )
+        )
+
+
+        diameter_kpc = (
+            get_physical_diameter(
+                overview_votable
+            )
+        )
+
+
+        diameter_arcsec = (
+            get_angular_diameter(
+                overview_votable
+            )
+        )
+
+
+        diameter_bandpass = (
+            get_text_exact(
+                overview_votable,
+                ["Bandpass"]
+            )
+        )
+
+
+        diameter_reference = (
+            get_text_exact(
+                overview_votable,
+                [
+                    "Diameter Refcode"
+                ]
+            )
+        )
+
+
+    else:
+
+        host_morphology = ""
+        host_morphology_reference = ""
+
+        mean_distance = np.nan
+        hubble_distance = np.nan
+
+        diameter_kpc = np.nan
+        diameter_arcsec = np.nan
+
+        diameter_bandpass = ""
+        diameter_reference = ""
+
+
+    # --------------------------------------------------------
+    # DISTANCE SELECTION
+    # --------------------------------------------------------
+
     if np.isfinite(
         mean_distance
     ):
@@ -1669,7 +1847,6 @@ def query_host(
         )
 
 
-    # Otherwise CMB Hubble Distance
     elif np.isfinite(
         hubble_distance
     ):
@@ -1692,48 +1869,20 @@ def query_host(
         )
 
 
-    # ========================================================
-    # DIAMETER
-    # ========================================================
-
-    diameter_kpc = (
-        get_physical_diameter(
-            votable
-        )
-    )
-
-    diameter_arcsec = (
-        get_angular_diameter(
-            votable
-        )
-    )
-
-    diameter_bandpass = (
-        get_text_exact(
-            votable,
-            [
-                "Bandpass"
-            ]
-        )
-    )
-
-    diameter_reference = (
-        get_text_exact(
-            votable,
-            [
-                "Diameter Refcode"
-            ]
-        )
-    )
-
-
-    # ========================================================
+    # --------------------------------------------------------
     # STATUS
-    # ========================================================
+    # --------------------------------------------------------
 
     problems = []
 
-    if not (
+
+    if not coordinate_query_success:
+
+        problems.append(
+            "HOST_COORDINATE_QUERY_FAILED"
+        )
+
+    elif not (
         np.isfinite(host_ra)
         and
         np.isfinite(host_dec)
@@ -1743,21 +1892,31 @@ def query_host(
             "NO_HOST_COORDINATES"
         )
 
-    if not np.isfinite(
-        distance_mpc
-    ):
+
+    if not overview_query_success:
 
         problems.append(
-            "NO_DISTANCE"
+            "OVERVIEW_QUERY_FAILED"
         )
 
-    if not np.isfinite(
-        diameter_kpc
-    ):
+    else:
 
-        problems.append(
-            "NO_DIAMETER"
-        )
+        if not np.isfinite(
+            distance_mpc
+        ):
+
+            problems.append(
+                "NO_DISTANCE"
+            )
+
+
+        if not np.isfinite(
+            diameter_kpc
+        ):
+
+            problems.append(
+                "NO_DIAMETER"
+            )
 
 
     if problems:
@@ -1772,6 +1931,9 @@ def query_host(
 
 
     return {
+
+        "host_name":
+            host_name,
 
         "host_ra":
             host_ra,
@@ -1810,42 +1972,465 @@ def query_host(
             diameter_reference,
 
         "host_status":
-            host_status
+            host_status,
+
+        "cache_complete":
+            cache_complete
     }
 
 
 # ============================================================
-# READ INPUT CSV
+# SAVE SN CACHE
+# ============================================================
+
+def save_sn_cache(
+    sn_cache
+):
+
+    if not sn_cache:
+        return
+
+
+    cache_df = pd.DataFrame(
+        list(
+            sn_cache.values()
+        )
+    )
+
+
+    cache_df.to_csv(
+        SN_CACHE_CSV,
+        index=False
+    )
+
+
+# ============================================================
+# SAVE HOST CACHE
+# ============================================================
+
+def save_host_cache(
+    host_cache
+):
+
+    if not host_cache:
+        return
+
+
+    cache_df = pd.DataFrame(
+        list(
+            host_cache.values()
+        )
+    )
+
+
+    cache_df.to_csv(
+        HOST_CACHE_CSV,
+        index=False
+    )
+
+
+# ============================================================
+# LOAD SN CACHE
+# ============================================================
+
+def load_sn_cache():
+
+    cache = {}
+
+
+    if FORCE_REFRESH:
+
+        print(
+            "FORCE_REFRESH=True:"
+        )
+
+        print(
+            "Ignoring old SN cache."
+        )
+
+        return cache
+
+
+    if not os.path.exists(
+        SN_CACHE_CSV
+    ):
+
+        return cache
+
+
+    try:
+
+        cache_df = pd.read_csv(
+            SN_CACHE_CSV
+        )
+
+
+        for _, row in cache_df.iterrows():
+
+            sn_name = text_value(
+                row.get(
+                    "sn_name",
+                    ""
+                )
+            )
+
+
+            if not sn_name:
+                continue
+
+
+            cache_complete = (
+                str(
+                    row.get(
+                        "cache_complete",
+                        False
+                    )
+                )
+                .strip()
+                .lower()
+                in {
+                    "true",
+                    "1",
+                    "yes"
+                }
+            )
+
+
+            # Temporary connection failures are NOT
+            # considered finished.
+            if not cache_complete:
+                continue
+
+
+            cache[
+                sn_name
+            ] = {
+
+                "sn_name":
+                    sn_name,
+
+                "sn_ra":
+                    numeric_value(
+                        row.get(
+                            "sn_ra"
+                        )
+                    ),
+
+                "sn_dec":
+                    numeric_value(
+                        row.get(
+                            "sn_dec"
+                        )
+                    ),
+
+                "sn_redshift":
+                    numeric_value(
+                        row.get(
+                            "sn_redshift"
+                        )
+                    ),
+
+                "sn_redshift_unc":
+                    numeric_value(
+                        row.get(
+                            "sn_redshift_unc"
+                        )
+                    ),
+
+                "sn_redshift_technique":
+                    text_value(
+                        row.get(
+                            "sn_redshift_technique",
+                            ""
+                        )
+                    ),
+
+                "sn_redshift_reference":
+                    text_value(
+                        row.get(
+                            "sn_redshift_reference",
+                            ""
+                        )
+                    ),
+
+                "sn_redshift_selection":
+                    text_value(
+                        row.get(
+                            "sn_redshift_selection",
+                            ""
+                        )
+                    ),
+
+                "sn_status":
+                    text_value(
+                        row.get(
+                            "sn_status",
+                            ""
+                        )
+                    ),
+
+                "cache_complete":
+                    True
+            }
+
+
+    except Exception as error:
+
+        print(
+            "Could not load SN cache:"
+        )
+
+        print(
+            error
+        )
+
+
+    return cache
+
+
+# ============================================================
+# LOAD HOST CACHE
+# ============================================================
+
+def load_host_cache():
+
+    cache = {}
+
+
+    if FORCE_REFRESH:
+
+        print(
+            "FORCE_REFRESH=True:"
+        )
+
+        print(
+            "Ignoring old host cache."
+        )
+
+        return cache
+
+
+    if not os.path.exists(
+        HOST_CACHE_CSV
+    ):
+
+        return cache
+
+
+    try:
+
+        cache_df = pd.read_csv(
+            HOST_CACHE_CSV
+        )
+
+
+        for _, row in cache_df.iterrows():
+
+            host_name = text_value(
+                row.get(
+                    "host_name",
+                    ""
+                )
+            )
+
+
+            if not host_name:
+                continue
+
+
+            cache_complete = (
+                str(
+                    row.get(
+                        "cache_complete",
+                        False
+                    )
+                )
+                .strip()
+                .lower()
+                in {
+                    "true",
+                    "1",
+                    "yes"
+                }
+            )
+
+
+            if not cache_complete:
+                continue
+
+
+            cache[
+                host_name
+            ] = {
+
+                "host_name":
+                    host_name,
+
+                "host_ra":
+                    numeric_value(
+                        row.get(
+                            "host_ra"
+                        )
+                    ),
+
+                "host_dec":
+                    numeric_value(
+                        row.get(
+                            "host_dec"
+                        )
+                    ),
+
+                "host_morphology":
+                    text_value(
+                        row.get(
+                            "host_morphology",
+                            ""
+                        )
+                    ),
+
+                "host_morphology_reference":
+                    text_value(
+                        row.get(
+                            "host_morphology_reference",
+                            ""
+                        )
+                    ),
+
+                "mean_distance_mpc":
+                    numeric_value(
+                        row.get(
+                            "mean_distance_mpc"
+                        )
+                    ),
+
+                "hubble_distance_mpc":
+                    numeric_value(
+                        row.get(
+                            "hubble_distance_mpc"
+                        )
+                    ),
+
+                "distance_mpc":
+                    numeric_value(
+                        row.get(
+                            "distance_mpc"
+                        )
+                    ),
+
+                "distance_method":
+                    text_value(
+                        row.get(
+                            "distance_method",
+                            ""
+                        )
+                    ),
+
+                "diameter_kpc":
+                    numeric_value(
+                        row.get(
+                            "diameter_kpc"
+                        )
+                    ),
+
+                "diameter_arcsec":
+                    numeric_value(
+                        row.get(
+                            "diameter_arcsec"
+                        )
+                    ),
+
+                "diameter_bandpass":
+                    text_value(
+                        row.get(
+                            "diameter_bandpass",
+                            ""
+                        )
+                    ),
+
+                "diameter_reference":
+                    text_value(
+                        row.get(
+                            "diameter_reference",
+                            ""
+                        )
+                    ),
+
+                "host_status":
+                    text_value(
+                        row.get(
+                            "host_status",
+                            ""
+                        )
+                    ),
+
+                "cache_complete":
+                    True
+            }
+
+
+    except Exception as error:
+
+        print(
+            "Could not load host cache:"
+        )
+
+        print(
+            error
+        )
+
+
+    return cache
+
+
+# ============================================================
+# READ INPUT
 # ============================================================
 
 print()
-print("Reading CSV...")
+
+print(
+    "============================================"
+)
+
+print(
+    "READING INPUT CSV"
+)
+
+print(
+    "============================================"
+)
+
+
+if not os.path.exists(
+    INPUT_CSV
+):
+
+    raise FileNotFoundError(
+        f"\nInput file does not exist:\n{INPUT_CSV}"
+    )
+
 
 df = pd.read_csv(
     INPUT_CSV
 )
 
 
-# ============================================================
-# CHECK REQUIRED COLUMNS
-# ============================================================
-
 if SN_NAME_COL not in df.columns:
 
     raise ValueError(
-        "Missing column: sn_name"
+        "Input CSV is missing column: sn_name"
     )
 
 
 if HOST_NAME_COL not in df.columns:
 
     raise ValueError(
-        "Missing column: host_name"
+        "Input CSV is missing column: host_name"
     )
 
 
 # ============================================================
-# CLEAN SN AND HOST NAMES
+# CLEAN INPUT
 # ============================================================
 
 df[SN_NAME_COL] = (
@@ -1864,12 +2449,7 @@ df[HOST_NAME_COL] = (
 )
 
 
-# ============================================================
-# REMOVE BLANK / INCOMPLETE ROWS
-#
-# This is what prevents the empty lines in Excel.
-# ============================================================
-
+# Remove blank rows.
 df = df.dropna(
     subset=[
         SN_NAME_COL,
@@ -1890,20 +2470,86 @@ print(
 
 
 # ============================================================
-# UNIQUE OBJECTS
+# UNIQUE SN AND HOST LISTS
 # ============================================================
 
-unique_sne = (
-    df[SN_NAME_COL]
-    .dropna()
-    .unique()
+unique_sne = list(
+    pd.unique(
+        df[SN_NAME_COL]
+    )
 )
 
 
-unique_hosts = (
-    df[HOST_NAME_COL]
-    .dropna()
-    .unique()
+unique_hosts = list(
+    pd.unique(
+        df[HOST_NAME_COL]
+    )
+)
+
+
+print(
+    "Unique supernovae:",
+    len(unique_sne)
+)
+
+print(
+    "Unique host galaxies:",
+    len(unique_hosts)
+)
+
+
+# ============================================================
+# LOAD PREVIOUS PROGRESS
+# ============================================================
+
+sn_cache = load_sn_cache()
+
+host_cache = load_host_cache()
+
+
+print()
+
+print(
+    "Previously completed SNe:",
+    len(sn_cache)
+)
+
+print(
+    "Previously completed hosts:",
+    len(host_cache)
+)
+
+
+remaining_sne = [
+
+    sn_name
+
+    for sn_name
+    in unique_sne
+
+    if sn_name not in sn_cache
+]
+
+
+remaining_hosts = [
+
+    host_name
+
+    for host_name
+    in unique_hosts
+
+    if host_name not in host_cache
+]
+
+
+print(
+    "SNe still requiring NED:",
+    len(remaining_sne)
+)
+
+print(
+    "Hosts still requiring NED:",
+    len(remaining_hosts)
 )
 
 
@@ -1911,11 +2557,10 @@ unique_hosts = (
 # QUERY SUPERNOVAE
 # ============================================================
 
-sn_cache = {}
-
 print()
+
 print(
-    "===================================="
+    "============================================"
 )
 
 print(
@@ -1923,21 +2568,28 @@ print(
 )
 
 print(
-    "===================================="
+    "============================================"
 )
 
 
+sn_start_time = time.time()
+
+
 for i, sn_name in enumerate(
-    unique_sne,
+    remaining_sne,
     start=1
 ):
 
+    object_start = time.time()
+
+
     print()
+
     print(
         "SN",
         i,
         "of",
-        len(unique_sne),
+        len(remaining_sne),
         ":",
         sn_name
     )
@@ -1948,43 +2600,116 @@ for i, sn_name in enumerate(
     )
 
 
-    sn_cache[
-        sn_name
-    ] = result
+    # --------------------------------------------------------
+    # SAVE ONLY WHEN BOTH NED REQUESTS ANSWERED
+    # --------------------------------------------------------
+
+    if result[
+        "cache_complete"
+    ]:
+
+        sn_cache[
+            sn_name
+        ] = result
+
+
+        save_sn_cache(
+            sn_cache
+        )
+
+
+        print(
+            "Saved to SN cache."
+        )
+
+
+    else:
+
+        print(
+            "Not cached because a NED request failed."
+        )
+
+        print(
+            "It will be tried again next time."
+        )
 
 
     print(
         "RA:",
-        result["sn_ra"]
+        result[
+            "sn_ra"
+        ]
     )
 
     print(
         "Dec:",
-        result["sn_dec"]
+        result[
+            "sn_dec"
+        ]
     )
 
     print(
         "Redshift:",
-        result["sn_redshift"]
+        result[
+            "sn_redshift"
+        ]
     )
 
     print(
-        "Redshift selection:",
+        "Redshift source:",
         result[
             "sn_redshift_selection"
         ]
     )
 
     print(
-        "Technique:",
+        "Status:",
         result[
-            "sn_redshift_technique"
+            "sn_status"
         ]
     )
 
+
+    elapsed_total = (
+        time.time()
+        -
+        sn_start_time
+    )
+
+
+    average_per_sn = (
+        elapsed_total
+        /
+        i
+    )
+
+
+    objects_left = (
+        len(remaining_sne)
+        -
+        i
+    )
+
+
+    estimated_remaining = (
+        average_per_sn
+        *
+        objects_left
+    )
+
+
     print(
-        "Status:",
-        result["sn_status"]
+        "Average time per SN:",
+        format_seconds(
+            average_per_sn
+        )
+    )
+
+    print(
+        "Estimated SN time remaining:",
+        format_seconds(
+            estimated_remaining
+        )
     )
 
 
@@ -1997,11 +2722,10 @@ for i, sn_name in enumerate(
 # QUERY HOST GALAXIES
 # ============================================================
 
-host_cache = {}
-
 print()
+
 print(
-    "===================================="
+    "============================================"
 )
 
 print(
@@ -2009,21 +2733,25 @@ print(
 )
 
 print(
-    "===================================="
+    "============================================"
 )
 
 
+host_start_time = time.time()
+
+
 for i, host_name in enumerate(
-    unique_hosts,
+    remaining_hosts,
     start=1
 ):
 
     print()
+
     print(
-        "Galaxy",
+        "HOST",
         i,
         "of",
-        len(unique_hosts),
+        len(remaining_hosts),
         ":",
         host_name
     )
@@ -2034,19 +2762,52 @@ for i, host_name in enumerate(
     )
 
 
-    host_cache[
-        host_name
-    ] = result
+    # --------------------------------------------------------
+    # CACHE ONLY COMPLETE NED RESPONSES
+    # --------------------------------------------------------
+
+    if result[
+        "cache_complete"
+    ]:
+
+        host_cache[
+            host_name
+        ] = result
+
+
+        save_host_cache(
+            host_cache
+        )
+
+
+        print(
+            "Saved to host cache."
+        )
+
+
+    else:
+
+        print(
+            "Not cached because a NED request failed."
+        )
+
+        print(
+            "It will be tried again next time."
+        )
 
 
     print(
         "RA:",
-        result["host_ra"]
+        result[
+            "host_ra"
+        ]
     )
 
     print(
         "Dec:",
-        result["host_dec"]
+        result[
+            "host_dec"
+        ]
     )
 
     print(
@@ -2065,7 +2826,7 @@ for i, host_name in enumerate(
     )
 
     print(
-        "Distance Method:",
+        "Distance method:",
         result[
             "distance_method"
         ]
@@ -2087,23 +2848,82 @@ for i, host_name in enumerate(
     )
 
 
+    elapsed_total = (
+        time.time()
+        -
+        host_start_time
+    )
+
+
+    average_per_host = (
+        elapsed_total
+        /
+        i
+    )
+
+
+    objects_left = (
+        len(remaining_hosts)
+        -
+        i
+    )
+
+
+    estimated_remaining = (
+        average_per_host
+        *
+        objects_left
+    )
+
+
+    print(
+        "Average time per host:",
+        format_seconds(
+            average_per_host
+        )
+    )
+
+    print(
+        "Estimated host time remaining:",
+        format_seconds(
+            estimated_remaining
+        )
+    )
+
+
     time.sleep(
         QUERY_DELAY
     )
 
 
 # ============================================================
-# BUILD OUTPUT TABLE
+# BUILD FINAL OUTPUT
 # ============================================================
+
+print()
+
+print(
+    "============================================"
+)
+
+print(
+    "BUILDING FINAL OUTPUT"
+)
+
+print(
+    "============================================"
+)
+
 
 output_rows = []
 
 
-for _, row in df.iterrows():
+for index, row in df.iterrows():
 
     sn_name = row[
         SN_NAME_COL
     ]
+
 
     host_name = row[
         HOST_NAME_COL
@@ -2111,14 +2931,18 @@ for _, row in df.iterrows():
 
 
     # ========================================================
-    # SN RESULT
+    # SN DATA
     # ========================================================
 
     sn_result = sn_cache.get(
+        sn_name
+    )
 
-        sn_name,
 
-        {
+    if sn_result is None:
+
+        sn_result = {
+
             "sn_ra":
                 np.nan,
 
@@ -2141,20 +2965,23 @@ for _, row in df.iterrows():
                 "",
 
             "sn_status":
-                "SN_NOT_FOUND"
+                "SN_QUERY_INCOMPLETE"
         }
-    )
 
 
     # ========================================================
-    # HOST RESULT
+    # HOST DATA
     # ========================================================
 
     host_result = host_cache.get(
+        host_name
+    )
 
-        host_name,
 
-        {
+    if host_result is None:
+
+        host_result = {
+
             "host_ra":
                 np.nan,
 
@@ -2192,30 +3019,35 @@ for _, row in df.iterrows():
                 "",
 
             "host_status":
-                "HOST_NOT_FOUND"
+                "HOST_QUERY_INCOMPLETE"
         }
-    )
 
-
-    # ========================================================
-    # VALUES
-    # ========================================================
 
     sn_ra = (
-        sn_result["sn_ra"]
+        sn_result[
+            "sn_ra"
+        ]
     )
 
+
     sn_dec = (
-        sn_result["sn_dec"]
+        sn_result[
+            "sn_dec"
+        ]
     )
 
 
     host_ra = (
-        host_result["host_ra"]
+        host_result[
+            "host_ra"
+        ]
     )
 
+
     host_dec = (
-        host_result["host_dec"]
+        host_result[
+            "host_dec"
+        ]
     )
 
 
@@ -2234,22 +3066,27 @@ for _, row in df.iterrows():
 
 
     # ========================================================
-    # SN-HOST OFFSET
+    # ANGULAR AND PHYSICAL OFFSET
     # ========================================================
 
     offset_arcsec = np.nan
     offset_kpc = np.nan
 
-    problems = []
-
 
     coordinates_ok = (
+
         np.isfinite(sn_ra)
+
         and
+
         np.isfinite(sn_dec)
+
         and
+
         np.isfinite(host_ra)
+
         and
+
         np.isfinite(host_dec)
     )
 
@@ -2291,33 +3128,19 @@ for _, row in df.iterrows():
             ):
 
                 offset_kpc = (
+
                     distance_mpc
+
                     * 1000.0
+
                     * separation.to_value(
                         u.rad
                     )
                 )
 
-            else:
 
-                problems.append(
-                    "NO_DISTANCE_FOR_OFFSET"
-                )
-
-
-        except Exception as error:
-
-            problems.append(
-                "OFFSET_ERROR: "
-                + str(error)
-            )
-
-
-    else:
-
-        problems.append(
-            "MISSING_COORDINATES_FOR_OFFSET"
-        )
+        except Exception:
+            pass
 
 
     # ========================================================
@@ -2325,14 +3148,21 @@ for _, row in df.iterrows():
     # ========================================================
 
     if (
-        np.isfinite(diameter_kpc)
+        np.isfinite(
+            diameter_kpc
+        )
+
         and
+
         diameter_kpc > 0
     ):
 
         galaxy_radius_kpc = (
-            diameter_kpc / 2.0
+            diameter_kpc
+            /
+            2.0
         )
+
 
     else:
 
@@ -2344,38 +3174,51 @@ for _, row in df.iterrows():
     # ========================================================
 
     if (
-        np.isfinite(offset_kpc)
+        np.isfinite(
+            offset_kpc
+        )
+
         and
+
         np.isfinite(
             galaxy_radius_kpc
         )
+
         and
+
         galaxy_radius_kpc > 0
     ):
 
         offset_over_galaxy_radius = (
+
             offset_kpc
+
             /
+
             galaxy_radius_kpc
         )
 
+
     else:
 
-        offset_over_galaxy_radius = (
-            np.nan
-        )
+        offset_over_galaxy_radius = np.nan
 
 
     # ========================================================
     # FINAL STATUS
     # ========================================================
 
+    statuses = []
+
+
     if (
-        sn_result["sn_status"]
+        sn_result[
+            "sn_status"
+        ]
         != "OK"
     ):
 
-        problems.append(
+        statuses.append(
             sn_result[
                 "sn_status"
             ]
@@ -2389,19 +3232,17 @@ for _, row in df.iterrows():
         != "OK"
     ):
 
-        problems.append(
+        statuses.append(
             host_result[
                 "host_status"
             ]
         )
 
 
-    if problems:
+    if statuses:
 
         final_status = ";".join(
-            dict.fromkeys(
-                problems
-            )
+            statuses
         )
 
     else:
@@ -2410,7 +3251,7 @@ for _, row in df.iterrows():
 
 
     # ========================================================
-    # ORGANIZED OUTPUT
+    # ORGANIZED FINAL COLUMNS
     # ========================================================
 
     output_rows.append({
@@ -2469,7 +3310,7 @@ for _, row in df.iterrows():
 
 
         # ----------------------------------------------------
-        # HOST DISTANCE
+        # DISTANCE
         # ----------------------------------------------------
 
         "distance_mpc":
@@ -2482,7 +3323,7 @@ for _, row in df.iterrows():
 
 
         # ----------------------------------------------------
-        # HOST SIZE
+        # GALAXY SIZE
         # ----------------------------------------------------
 
         "diameter_kpc":
@@ -2493,7 +3334,7 @@ for _, row in df.iterrows():
 
 
         # ----------------------------------------------------
-        # SN-HOST OFFSET
+        # OFFSET
         # ----------------------------------------------------
 
         "offset_arcsec":
@@ -2507,7 +3348,7 @@ for _, row in df.iterrows():
 
 
         # ----------------------------------------------------
-        # EXTRA NED DATA
+        # EXTRA NED INFORMATION
         # ----------------------------------------------------
 
         "host_morphology_reference":
@@ -2569,10 +3410,6 @@ output = pd.DataFrame(
 )
 
 
-# ============================================================
-# REMOVE COMPLETELY EMPTY ROWS
-# ============================================================
-
 output = output.dropna(
     how="all"
 )
@@ -2584,9 +3421,7 @@ output = output.reset_index(
 
 
 # ============================================================
-# ROUND NUMERIC VALUES
-#
-# This makes Excel much easier to read.
+# ROUND NUMBERS
 # ============================================================
 
 rounding = {
@@ -2643,16 +3478,20 @@ for column, decimals in rounding.items():
     if column in output.columns:
 
         output[column] = (
+
             pd.to_numeric(
                 output[column],
                 errors="coerce"
             )
-            .round(decimals)
+
+            .round(
+                decimals
+            )
         )
 
 
 # ============================================================
-# SAVE CSV
+# SAVE FINAL CSV
 # ============================================================
 
 output.to_csv(
@@ -2666,8 +3505,9 @@ output.to_csv(
 # ============================================================
 
 print()
+
 print(
-    "===================================="
+    "============================================"
 )
 
 print(
@@ -2675,13 +3515,15 @@ print(
 )
 
 print(
-    "===================================="
+    "============================================"
 )
 
+
 print(
-    "Total SN-host rows:",
+    "Total rows:",
     len(output)
 )
+
 
 print(
     "SN coordinates found:",
@@ -2690,6 +3532,7 @@ print(
     ].notna().sum()
 )
 
+
 print(
     "SN redshifts found:",
     output[
@@ -2697,12 +3540,14 @@ print(
     ].notna().sum()
 )
 
+
 print(
     "Host coordinates found:",
     output[
         "host_ra_deg"
     ].notna().sum()
 )
+
 
 print(
     "Host morphologies found:",
@@ -2718,26 +3563,30 @@ print(
     )
 )
 
+
 print(
-    "Distances found:",
+    "Host distances found:",
     output[
         "distance_mpc"
     ].notna().sum()
 )
 
+
 print(
-    "Diameters found:",
+    "Host diameters found:",
     output[
         "diameter_kpc"
     ].notna().sum()
 )
 
+
 print(
-    "Offsets calculated:",
+    "Physical offsets calculated:",
     output[
         "offset_kpc"
     ].notna().sum()
 )
+
 
 print(
     "Normalized offsets calculated:",
@@ -2746,11 +3595,35 @@ print(
     ].notna().sum()
 )
 
+
 print()
+
 print(
-    "Saved to:"
+    "Final output:"
 )
 
 print(
     OUTPUT_CSV
+)
+
+
+print()
+
+print(
+    "SN progress cache:"
+)
+
+print(
+    SN_CACHE_CSV
+)
+
+
+print()
+
+print(
+    "Host progress cache:"
+)
+
+print(
+    HOST_CACHE_CSV
 )
